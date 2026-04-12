@@ -108,27 +108,31 @@
 
     // --- Rekonise ---
     if (currentUrl.includes('rekonise.com')) {
-        const runRekonise = async () => {
-            const scriptElement = document.getElementById('ng-state');
-            if (!scriptElement) return;
-            const content = scriptElement.textContent;
-            const tokenMatch = content.match(/"unlock_token":"([^"]+)"/);
-            if (tokenMatch && tokenMatch[1]) {
-                const token = tokenMatch[1];
-                const parts = window.location.pathname.split('/').filter(Boolean);
-                const slug = parts[parts.length - 1];
-                if (slug) {
-                    const apiUrl = `https://api.rekonise.com/social-unlocks/${slug}/unlock?token=${token}`;
-                    try {
-                        const res = await fetch(apiUrl);
-                        const json = await res.json();
-                        if (json?.url) location.href = json.url;
-                    } catch (err) { console.error('Bypass failed:', err); }
+        let attempts = 0;
+
+        const checkUnlock = async () => {
+            const ngState = document.getElementById('ng-state');
+            const slug = window.location.pathname.split('/').pop();
+            const tokenMatch = ngState?.textContent?.match(/"unlock_token":"([^"]+)"/);
+
+            if (!tokenMatch || !slug) return attempts >= 5 && clearInterval(interval);
+
+            try {
+                const res = await fetch(`https://api.rekonise.com/social-unlocks/${slug}/unlock?token=${tokenMatch[1]}`);
+                const data = await res.json();
+
+                if (data?.url) {
+                    clearInterval(interval);
+                    window.location.href = data.url;
+                } else if (++attempts >= 5) {
+                    clearInterval(interval);
                 }
+            } catch (err) {
+                if (++attempts >= 5) clearInterval(interval);
             }
         };
-        if (document.readyState === 'complete') runRekonise();
-        else window.addEventListener('load', runRekonise);
+
+        const interval = setInterval(checkUnlock, 2000);
     }
 
     // --- Mboost.me ---
@@ -150,43 +154,42 @@
     }
 
     // --- SocialWolvez / SCWZ ---
+    if (currentUrl.includes('socialwolvez.com') || currentUrl.includes('scwz.me')) {
+        let redirected = false;
 
-if (currentUrl.includes('socialwolvez.com') || currentUrl.includes('scwz.me')) {
-    let redirected = false;
+        const runSocialWolvez = () => {
+            if (redirected) return;
 
-    const runSocialWolvez = () => {
-        if (redirected) return;
+            const scripts = document.querySelectorAll('script');
 
-        const scripts = document.querySelectorAll('script');
+            for (const script of scripts) {
+                const content = script.textContent;
+                if (!content) continue;
 
-        for (const script of scripts) {
-            const content = script.textContent;
-            if (!content) continue;
+                const urlMatch = content.match(/\\"url\\":\\"(https?:\/\/[^\\"]+)\\"/);
+                if (urlMatch && urlMatch[1]) {
+                    const targetUrl = urlMatch[1];
+                    if (!targetUrl.includes('socialwolvez.com') && !targetUrl.includes('scwz.me')) {
+                        redirected = true;
+                        window.location.href = targetUrl;
+                        return;
+                    }
+                }
 
-            const urlMatch = content.match(/\\"url\\":\\"(https?:\/\/[^\\"]+)\\"/);
-            if (urlMatch && urlMatch[1]) {
-                const targetUrl = urlMatch[1];
-                if (!targetUrl.includes('socialwolvez.com') && !targetUrl.includes('scwz.me')) {
-                    redirected = true;
-                    window.location.href = targetUrl;
-                    return;
+                const urlMatch2 = content.match(/\"url\":\"(https?:\/\/[^\"]+)\"/);
+                if (urlMatch2 && urlMatch2[1]) {
+                    const targetUrl = urlMatch2[1].replace(/\\/g, '');
+                    if (!targetUrl.includes('socialwolvez.com') && !targetUrl.includes('scwz.me')) {
+                        redirected = true;
+                        window.location.href = targetUrl;
+                        return;
+                    }
                 }
             }
+        };
 
-            const urlMatch2 = content.match(/\"url\":\"(https?:\/\/[^\"]+)\"/);
-            if (urlMatch2 && urlMatch2[1]) {
-                const targetUrl = urlMatch2[1].replace(/\\/g, '');
-                if (!targetUrl.includes('socialwolvez.com') && !targetUrl.includes('scwz.me')) {
-                    redirected = true;
-                    window.location.href = targetUrl;
-                    return;
-                }
-            }
-        }
-    };
-
-    setTimeout(runSocialWolvez, 1500);
-}
+        setTimeout(runSocialWolvez, 1500);
+    }
 
     // --- LDNESFSPUBLIC ---
     if (currentUrl.includes('ldnesfspublic.org')) {
@@ -209,105 +212,105 @@ if (currentUrl.includes('socialwolvez.com') || currentUrl.includes('scwz.me')) {
     }
 
     // --- LinkUnlocker ---
-if (currentUrl.includes('linkunlocker.com')) {
-    const runLinkUnlocker = async () => {
-        const scripts = document.querySelectorAll('script');
-        let unlockerId = null;
-        let encryptedUrl = null;
+    if (currentUrl.includes('linkunlocker.com')) {
+        const runLinkUnlocker = async () => {
+            const scripts = document.querySelectorAll('script');
+            let unlockerId = null;
+            let encryptedUrl = null;
 
-        for (const script of scripts) {
-            if (script.textContent && script.textContent.includes('self.__next_f.push')) {
-                const content = script.textContent;
+            for (const script of scripts) {
+                if (script.textContent && script.textContent.includes('self.__next_f.push')) {
+                    const content = script.textContent;
 
-                const idMatch = content.match(/\\"_id\\":\\"69[a-f0-9]{22}\\"/);
-                if (!idMatch) {
-                    const idMatch2 = content.match(/"_id":"(69[a-f0-9]{22})"/);
-                    if (idMatch2) unlockerId = idMatch2[1];
-                } else {
-                    unlockerId = idMatch[0].match(/69[a-f0-9]{22}/)[0];
-                }
+                    const idMatch = content.match(/\\"_id\\":\\"69[a-f0-9]{22}\\"/);
+                    if (!idMatch) {
+                        const idMatch2 = content.match(/"_id":"(69[a-f0-9]{22})"/);
+                        if (idMatch2) unlockerId = idMatch2[1];
+                    } else {
+                        unlockerId = idMatch[0].match(/69[a-f0-9]{22}/)[0];
+                    }
 
-                const encMatch = content.match(/\\"_secureTarget5\\":\\"([^\\]+)\\"/);
-                if (!encMatch) {
-                    const encMatch2 = content.match(/"_secureTarget5":"([^"]+)"/);
-                    if (encMatch2) encryptedUrl = encMatch2[1];
-                } else {
-                    encryptedUrl = encMatch[1];
-                }
+                    const encMatch = content.match(/\\"_secureTarget5\\":\\"([^\\]+)\\"/);
+                    if (!encMatch) {
+                        const encMatch2 = content.match(/"_secureTarget5":"([^"]+)"/);
+                        if (encMatch2) encryptedUrl = encMatch2[1];
+                    } else {
+                        encryptedUrl = encMatch[1];
+                    }
 
-                if (unlockerId && encryptedUrl) {
-                    break;
+                    if (unlockerId && encryptedUrl) {
+                        break;
+                    }
                 }
             }
-        }
 
-        if (unlockerId && encryptedUrl) {
-            try {
-                const tokenRes = await fetch(window.location.href, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'text/plain;charset=UTF-8',
-                        'Accept': 'text/x-component',
-                        'Next-Action': '40aefacb2f77a22354545aacbb194a03ebfedad72b',
-                        'Next-Router-State-Tree': encodeURIComponent('["",{"children":[[\"slug\",\"' + window.location.pathname.split('/').pop() + '\",\"d\"],{"children":["__PAGE__",{},null,null]},null,null]}],null,null,true]')
-                    },
-                    body: JSON.stringify([unlockerId])
-                });
+            if (unlockerId && encryptedUrl) {
+                try {
+                    const tokenRes = await fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'text/plain;charset=UTF-8',
+                            'Accept': 'text/x-component',
+                            'Next-Action': '40aefacb2f77a22354545aacbb194a03ebfedad72b',
+                            'Next-Router-State-Tree': encodeURIComponent('["",{"children":[[\"slug\",\"' + window.location.pathname.split('/').pop() + '\",\"d\"],{"children":["__PAGE__",{},null,null]},null,null]}],null,null,true]')
+                        },
+                        body: JSON.stringify([unlockerId])
+                    });
 
-                const tokenText = await tokenRes.text();
-                let tokenMatch = tokenText.match(/"token":"([^"]+)"/);
-                if (!tokenMatch) {
-                    tokenMatch = tokenText.match(/token\\":\\"([^\\"]+)\\"/);
+                    const tokenText = await tokenRes.text();
+                    let tokenMatch = tokenText.match(/"token":"([^"]+)"/);
+                    if (!tokenMatch) {
+                        tokenMatch = tokenText.match(/token\\":\\"([^\\"]+)\\"/);
+                    }
+
+                    if (!tokenMatch) {
+                        return;
+                    }
+
+                    const requestToken = tokenMatch[1];
+
+                    const finalRes = await fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'text/plain;charset=UTF-8',
+                            'Accept': 'text/x-component',
+                            'Next-Action': '403f66e55109b46b722c408c17a17267d20e0393c2',
+                            'Next-Router-State-Tree': encodeURIComponent('["",{"children":[[\"slug\",\"' + window.location.pathname.split('/').pop() + '\",\"d\"],{"children":["__PAGE__",{},null,null]},null,null]}],null,null,true]')
+                        },
+                        body: JSON.stringify([{
+                            encryptedUrl: encryptedUrl,
+                            requestToken: requestToken,
+                            unlockerId: unlockerId,
+                            useAdDestination: false,
+                            adDestination: ""
+                        }])
+                    });
+
+                    const finalText = await finalRes.text();
+
+                    let urlMatch = finalText.match(/"url":"([^"]+)"/);
+                    if (!urlMatch) {
+                        urlMatch = finalText.match(/url\\":\\"([^\\"]+)\\"/);
+                    }
+
+                    if (urlMatch && urlMatch[1]) {
+                        const destinationUrl = urlMatch[1].replace(/\\/g, '');
+                        window.location.href = destinationUrl;
+                    } else {
+                        console.log('[Bypass] URL not found');
+                    }
+                } catch (err) {
+                    console.error('[Bypass] Error LinkUnlocker:', err);
                 }
-
-                if (!tokenMatch) {
-                    return;
-                }
-
-                const requestToken = tokenMatch[1];
-
-                const finalRes = await fetch(window.location.href, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'text/plain;charset=UTF-8',
-                        'Accept': 'text/x-component',
-                        'Next-Action': '403f66e55109b46b722c408c17a17267d20e0393c2',
-                        'Next-Router-State-Tree': encodeURIComponent('["",{"children":[[\"slug\",\"' + window.location.pathname.split('/').pop() + '\",\"d\"],{"children":["__PAGE__",{},null,null]},null,null]}],null,null,true]')
-                    },
-                    body: JSON.stringify([{
-                        encryptedUrl: encryptedUrl,
-                        requestToken: requestToken,
-                        unlockerId: unlockerId,
-                        useAdDestination: false,
-                        adDestination: ""
-                    }])
-                });
-
-                const finalText = await finalRes.text();
-
-                let urlMatch = finalText.match(/"url":"([^"]+)"/);
-                if (!urlMatch) {
-                    urlMatch = finalText.match(/url\\":\\"([^\\"]+)\\"/);
-                }
-
-                if (urlMatch && urlMatch[1]) {
-                    const destinationUrl = urlMatch[1].replace(/\\/g, '');
-                    window.location.href = destinationUrl;
-                } else {
-                    console.log('[Bypass] URL not found');
-                }
-            } catch (err) {
-                console.error('[Bypass] Error LinkUnlocker:', err);
+            } else {
+                console.log('[Bypass] Dates nor found');
             }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', runLinkUnlocker);
         } else {
-            console.log('[Bypass] Dates nor found');
+            runLinkUnlocker();
         }
-    };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', runLinkUnlocker);
-    } else {
-        runLinkUnlocker();
     }
-}
 })();
