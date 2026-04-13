@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simple bypass
 // @namespace    by z3r0d4 and AI
-// @version      0.0.2
+// @version      0.0.3
 // @description  Simple AI made bypass with status panel
 // @author       Zero
 // @match        https://linkzy.space/*
@@ -20,6 +20,12 @@
 // @match        https://bstlar.com/*
 // @match        https://go.linkify.ru/*
 // @match        https://lockr.so/*
+// @match        sub4unlock.com/*
+// @match        sub4unlock.me/*
+// @match        sub4unlock.io/*
+// @match        sub2unlock.com/*
+// @match        sub2unlock.me/*
+// @match        sub2unlock.io/*
 // @grant        none
 // @run-at       document-start
 // ==/UserScript==
@@ -686,4 +692,55 @@
             updateStatus('Invalid locker code', true);
         }
     }
+
+    // --- Sub4Unlock ---
+    if (location.href.includes('sub4unlock.com') || location.href.includes('sub4unlock.me') || location.href.includes('sub4unlock.io')) {
+        const panel = document.getElementById('bypass-status-panel');
+        const setMsg = (msg) => {
+            if (panel) {
+                const detail = panel.querySelector('#bypass-status-detail');
+                if (detail) detail.textContent = msg;
+            }
+            console.log(msg);
+        };
+
+        setTimeout(() => {
+            if (typeof fun9 === 'function') {
+                updateStatus('✅ Executing fun9()', true);
+                fun9();
+            } else {
+
+                const scripts = document.querySelectorAll('script');
+                for (const script of scripts) {
+                    const content = script.textContent || script.innerText;
+                    if (content && content.includes('window.open')) {
+                        const match = content.match(/window\.open\s*\(\s*['"]([^'"]+)['"]/);
+                        if (match && match[1]) {
+                            const url = match[1];
+                            updateStatus('✅ redirecting..', true);
+                            setTimeout(() => {
+                                window.location.href = url;
+                            }, 500);
+                            break;
+                        }
+                    }
+                }
+            }
+        }, 3000);
+    }
+
+    // --- Sub2Unlock ---
+    if (location.href.includes('sub2unlock.com') || location.href.includes('sub2unlock.me') || location.href.includes('sub2unlock.io')) {
+        const wait = setInterval(() => {
+            const btn = document.querySelector('.btn-primary[disabled], #file[disabled]');
+            if (btn) {
+                clearInterval(wait);
+                btn.removeAttribute('disabled');
+                btn.disabled = false;
+                updateStatus('✅ redirecting..', true);
+                btn.click();
+            }
+        }, 500);
+    }
+
 })();
