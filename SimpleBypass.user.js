@@ -524,16 +524,16 @@
 
     // --- Bstlar.com ---
     if (currentUrl.includes('bstlar.com')) {
-        updateStatus('Intercepting Bstlar...');
+        updateStatus('Bypassing Bstlar...');
 
+        // Intercept fetch API
         const { fetch: originalFetch } = window;
         window.fetch = async (...args) => {
             const url = args[0].toString();
-
             const response = await originalFetch(...args);
 
             if (url.includes('/api/link')) {
-                updateStatus('Link API intercepted...');
+                updateStatus('🎯 API intercepted...');
                 const clone = response.clone();
                 clone.json().then(async (data) => {
                     const urlParams = new URLSearchParams(url.split('?')[1]);
@@ -541,7 +541,7 @@
                     const linkId = data?.id;
 
                     if (linkId && linkActionId) {
-                        updateStatus('Completing link...');
+                        updateStatus('✅ Completing...');
                         const completeRes = await originalFetch('/api/link-completed', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -552,7 +552,7 @@
                             redirectWithStatus(completeData.destination_url, 'Redirecting...');
                         }
                     }
-                }).catch(e => updateStatus('Error parsing response', true));
+                }).catch(() => updateStatus('❌ Error', true));
             }
             return response;
         };
@@ -562,7 +562,6 @@
 
         XMLHttpRequest.prototype.open = function(method, url, ...rest) {
             this._url = url;
-            this._method = method;
             return originalOpen.call(this, method, url, ...rest);
         };
 
@@ -586,11 +585,19 @@
                                 }
                             });
                         }
-                    } catch(e) { updateStatus('XHR Error', true); }
+                    } catch(e) {}
                 });
             }
             return originalSend.call(this, body);
         };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                document.body.appendChild(statusPanel);
+            });
+        } else {
+            document.body.appendChild(statusPanel);
+        }
     }
 
     // --- go.linkify.ru ---
