@@ -27,6 +27,8 @@
 // @match        sub2unlock.me/*
 // @match        sub2unlock.io/*
 // @grant        none
+// @downloadURL  https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
+// @updateURL    https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
 // @run-at       document-start
 // ==/UserScript==
 
