@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Simple bypass
 // @namespace    by z3r0d4 and AI
-// @version      0.0.3
-// @description  Simple AI made bypass with status panel
+// @version      0.0.4
+// @description  Simple AI made bypass
 // @author       Zero
+// @match        https://linkvertise.com/*
 // @match        https://linkzy.space/*
 // @match        https://boost.ink/*
 // @match        https://rekonise.com/*
@@ -20,12 +21,16 @@
 // @match        https://bstlar.com/*
 // @match        https://go.linkify.ru/*
 // @match        https://lockr.so/*
-// @match        sub4unlock.com/*
-// @match        sub4unlock.me/*
-// @match        sub4unlock.io/*
-// @match        sub2unlock.com/*
-// @match        sub2unlock.me/*
-// @match        sub2unlock.io/*
+// @match        https://sub4unlock.com/*
+// @match        https://sub4unlock.me/*
+// @match        https://sub4unlock.io/*
+// @match        https://sub4unlock.pro/*
+// @match        https://sub2unlock.com/*
+// @match        https://sub2unlock.me/*
+// @match        https://sub2unlock.io/*
+// @match        https://sub2unlock.online/*
+// @match        https://sub2unlock.top/*
+// @match        https://rbscripts.net/*
 // @grant        none
 // @downloadURL  https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
 // @updateURL    https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
@@ -126,6 +131,56 @@
         setTimeout(() => {
             window.location.href = url;
         }, 500);
+    }
+
+    // --- Linkvertise  ---
+    if (currentUrl.includes('linkvertise.com')) {
+        updateStatus('Processing Linkvertise link...');
+
+        let hashParam = '';
+        let targetUrl = window.location.href;
+
+        if (targetUrl.includes('/dynamic')) {
+            const urlObj = new URL(targetUrl);
+            const redirectParam = urlObj.searchParams.get('r');
+
+            if (redirectParam) {
+                hashParam = decodeURIComponent(redirectParam);
+                updateStatus(`Extracted hash param (length: ${hashParam.length})`);
+            }
+
+            targetUrl = targetUrl.replace(/[?&]o=sharing/g, '');
+        }
+
+        updateStatus('Sending to bypass backend...');
+
+        fetch('https://skipped.lol/api/evade/lv', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                URL: targetUrl,
+                userAndHash: hashParam
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data && data.type === 'url' && data.resp) {
+                updateStatus('Link bypassed! Redirecting...');
+                setTimeout(() => {
+                    window.location.href = data.resp;
+                }, 500);
+            } else if (data && data.type === 'paste' && data.resp) {
+                updateStatus('Copying to clipboard...');
+                navigator.clipboard.writeText(data.resp);
+                updateStatus('Copied! You can now close this page.');
+            } else {
+                updateStatus('Backend response invalid', true);
+            }
+        })
+        .catch(err => {
+            updateStatus('Backend request failed: ' + err.message, true);
+            console.error(err);
+        });
     }
 
     // --- Link-Unlock.com ---
@@ -703,7 +758,7 @@
     }
 
     // --- Sub4Unlock ---
-    if (location.href.includes('sub4unlock.com') || location.href.includes('sub4unlock.me') || location.href.includes('sub4unlock.io')) {
+    if (location.href.includes('sub4unlock.com') || location.href.includes('sub4unlock.me') || location.href.includes('sub4unlock.io') || location.href.includes('sub4unlock.pro')) {
         const panel = document.getElementById('bypass-status-panel');
         const setMsg = (msg) => {
             if (panel) {
@@ -739,7 +794,7 @@
     }
 
     // --- Sub2Unlock ---
-    if (location.href.includes('sub2unlock.com') || location.href.includes('sub2unlock.me') || location.href.includes('sub2unlock.io')) {
+    if (location.href.includes('sub2unlock.com') || location.href.includes('sub2unlock.me') || location.href.includes('sub2unlock.io') || location.href.includes('sub2unlock.top') || location.href.includes('sub2unlock.pro')) {
         const wait = setInterval(() => {
             const btn = document.querySelector('.btn-primary[disabled], #file[disabled]');
             if (btn) {
@@ -750,6 +805,116 @@
                 btn.click();
             }
         }, 500);
+    }
+
+        // --- RBScripts.net ---
+    if (currentUrl.includes('rbscripts.net')) {
+        updateStatus('Processing RBScripts...');
+
+        let isResolved = false;
+        const FAIL_TIMEOUT = 10000;
+        let failTimer;
+
+        const setFailTimer = () => {
+            failTimer = setTimeout(() => {
+                if (!isResolved) {
+                    updateStatus('Bypass Failed (Timeout)', true);
+                    isResolved = true;
+                }
+            }, FAIL_TIMEOUT);
+        };
+
+        const redirectToDestination = (url, source) => {
+            if (!isResolved) {
+                isResolved = true;
+                clearTimeout(failTimer);
+                setTimeout(() => {
+                    window.location.href = url;
+                }, 500);
+            }
+        };
+
+        const originalFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const url = args[0].toString();
+
+            if (url.includes('/api/custom-redirects/') && !isResolved) {
+                updateStatus('Intercepted...');
+                try {
+                    const response = await originalFetch(...args);
+                    const clonedResponse = response.clone();
+                    const data = await clonedResponse.json();
+
+                    if (data && data.destination) {
+                        redirectToDestination(data.destination, 'API Checkpoint');
+                    }
+                    return response;
+                } catch (e) {
+                    return originalFetch(...args);
+                }
+            }
+            return originalFetch(...args);
+        };
+
+        const checkForNextData = () => {
+            if (isResolved) return;
+
+            const nextDataScript = document.getElementById('__NEXT_DATA__');
+            if (nextDataScript) {
+                try {
+                    const jsonData = JSON.parse(nextDataScript.textContent);
+                    const targetUrl = jsonData?.props?.pageProps?.initialTask?.targetUrl;
+
+                    if (targetUrl) {
+                        redirectToDestination(targetUrl, '__NEXT_DATA__');
+                    }
+                } catch (e) {
+                    console.error('Error__NEXT_DATA__:', e);
+                }
+            }
+        };
+
+        setFailTimer();
+
+        const observer = new MutationObserver((mutations) => {
+            if (isResolved) {
+                observer.disconnect();
+                return;
+            }
+
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList') {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === Node.ELEMENT_NODE) {
+                            if (node.id === '__NEXT_DATA__' && node.tagName === 'SCRIPT') {
+                                checkForNextData();
+                                return;
+                            }
+                            const innerScript = node.querySelector?.('#__NEXT_DATA__');
+                            if (innerScript) {
+                                checkForNextData();
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const startObservation = () => {
+            checkForNextData();
+
+            observer.observe(document.documentElement, {
+                childList: true,
+                subtree: true
+            });
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startObservation);
+        } else {
+            startObservation();
+        }
     }
 
 })();
