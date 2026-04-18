@@ -33,6 +33,8 @@
 // @match        https://rbscripts.net/*
 // @match        https://auth.platorelay.com/*
 // @match        https://bstshrt.com/*
+// @match        https://link4sub.com/*
+// @match        https://*.tapvietcode.com/*
 // @grant        none
 // @downloadURL  https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
 // @updateURL    https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
@@ -1073,5 +1075,132 @@
             initBstShrt();
         }
     }
+
+    // --- Link4Sub ---
+    if (currentUrl.includes('link4sub.com')) {
+
+        const hideOverlay = () => {
+            const overlay = document.getElementById('qkha-task-locker-overlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+                updateStatus('Overlay hidden!');
+                return true;
+            }
+            return false;
+        };
+
+        if (!hideOverlay()) {
+            let attempts = 0;
+            const maxAttempts = 10;
+            const interval = setInterval(() => {
+                if (hideOverlay() || ++attempts >= maxAttempts) {
+                    clearInterval(interval);
+                    if (attempts >= maxAttempts) updateStatus('Overlay not found', true);
+                }
+            }, 500);
+        }
+    }
+
+    if (currentUrl.includes('blog.tapvietcode.com')) {
+        updateStatus('Looking for continue button...');
+
+        const findAndClickContinue = () => {
+            const continueBtn = document.getElementById('continueBtn');
+            if (continueBtn && continueBtn.href) {
+                const targetUrl = continueBtn.href;
+                if (targetUrl && !targetUrl.includes('blog.tapvietcode.com')) {
+                    redirectWithStatus(targetUrl, 'Continue button found, redirecting...');
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (!findAndClickContinue()) {
+            const observer = new MutationObserver((mutations, obs) => {
+                if (findAndClickContinue()) obs.disconnect();
+            });
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+            setTimeout(() => {
+                observer.disconnect();
+                if (!findAndClickContinue()) updateStatus('Continue button not found', true);
+            }, 10000);
+        }
+    }
+
+    if (currentUrl.includes('pro.tapvietcode.com')) {
+        updateStatus('Reading _STU from localStorage...');
+
+        let attempts = 0;
+        const maxAttempts = 5;
+
+        const findFirstValidUrl = (obj, excludeBase = true) => {
+            if (!obj || typeof obj !== 'object') return null;
+            const stack = [obj];
+            const visited = new Set();
+            while (stack.length) {
+                const current = stack.pop();
+                if (visited.has(current)) continue;
+                visited.add(current);
+                for (const value of Object.values(current)) {
+                    if (typeof value === 'string' && value.startsWith('http')) {
+                        if (excludeBase && (value.includes('pro.tapvietcode.com') || value.includes('link4sub.com'))) continue;
+                        return value;
+                    } else if (value && typeof value === 'object') {
+                        stack.push(value);
+                    }
+                }
+            }
+            return null;
+        };
+
+        const processSTU = () => {
+            attempts++;
+            updateStatus(`Attempt ${attempts}/${maxAttempts} - Reading _STU...`);
+            try {
+                const stuRaw = localStorage.getItem('_STU');
+                if (!stuRaw) {
+                    if (attempts >= maxAttempts) {
+                        updateStatus('_STU not found after max attempts', true);
+                        return true;
+                    }
+                    return false;
+                }
+
+                const stuData = JSON.parse(stuRaw);
+                let targetUrl = stuData?.data?.lnk?.lnk1?.url;
+                if (!targetUrl || targetUrl === '#') targetUrl = findFirstValidUrl(stuData);
+
+                if (targetUrl && targetUrl !== '#') {
+                    redirectWithStatus(targetUrl, 'Destination found, redirecting...');
+                    return true;
+                }
+
+                if (attempts >= maxAttempts) {
+                    updateStatus('No valid URL found after max attempts', true);
+                    return true;
+                }
+                return false;
+            } catch (e) {
+                if (attempts >= maxAttempts) {
+                    updateStatus(`Error after max attempts: ${e.message}`, true);
+                    return true;
+                }
+                updateStatus(`Error (attempt ${attempts}): ${e.message}`, true);
+                return false;
+            }
+        };
+
+        const interval = setInterval(() => {
+            const shouldStop = processSTU();
+            if (shouldStop) clearInterval(interval);
+        }, 2000);
+
+        setTimeout(() => {
+            const shouldStop = processSTU();
+            if (shouldStop) clearInterval(interval);
+        }, 500);
+    }
+
 
 })();
