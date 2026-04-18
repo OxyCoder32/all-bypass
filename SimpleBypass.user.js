@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simple bypass
 // @namespace    by z3r0d4 and AI
-// @version      0.0.4
+// @version      0.0.5
 // @description  Simple AI made bypass
 // @author       Zero
 // @match        https://linkvertise.com/*
@@ -31,6 +31,8 @@
 // @match        https://sub2unlock.online/*
 // @match        https://sub2unlock.top/*
 // @match        https://rbscripts.net/*
+// @match        https://auth.platorelay.com/*
+// @match        https://bstshrt.com/*
 // @grant        none
 // @downloadURL  https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
 // @updateURL    https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
@@ -133,11 +135,11 @@
         }, 500);
     }
 
-    // --- Linkvertise  ---
+
+    // --- Linkvertise ---
     if (currentUrl.includes('linkvertise.com')) {
         updateStatus('Processing Linkvertise link...');
 
-        let hashParam = '';
         let targetUrl = window.location.href;
 
         if (targetUrl.includes('/dynamic')) {
@@ -145,11 +147,24 @@
             const redirectParam = urlObj.searchParams.get('r');
 
             if (redirectParam) {
-                hashParam = decodeURIComponent(redirectParam);
-                updateStatus(`Extracted hash param (length: ${hashParam.length})`);
+                try {
+                    const urlDecoded = decodeURIComponent(redirectParam);
+                    let base64Part = urlDecoded;
+                    const decodedUrl = atob(base64Part);
+                    let finalUrl = decodedUrl;
+                    try {
+                        const jsonData = JSON.parse(decodedUrl);
+                        finalUrl = jsonData.link || jsonData.url || jsonData.target;
+                    } catch(e) {}
+                    if (finalUrl && finalUrl !== targetUrl) {
+                        updateStatus('Redirecting...');
+                        window.location.href = finalUrl;
+                        return;
+                    }
+                } catch(e) {
+                    updateStatus('Decode failed', true);
+                }
             }
-
-            targetUrl = targetUrl.replace(/[?&]o=sharing/g, '');
         }
 
         updateStatus('Sending to bypass backend...');
@@ -159,11 +174,11 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 URL: targetUrl,
-                userAndHash: hashParam
+                userAndHash: ''
             })
         })
-        .then(response => response.json())
-        .then(data => {
+            .then(response => response.json())
+            .then(data => {
             if (data && data.type === 'url' && data.resp) {
                 updateStatus('Link bypassed! Redirecting...');
                 setTimeout(() => {
@@ -177,7 +192,7 @@
                 updateStatus('Backend response invalid', true);
             }
         })
-        .catch(err => {
+            .catch(err => {
             updateStatus('Backend request failed: ' + err.message, true);
             console.error(err);
         });
@@ -807,7 +822,7 @@
         }, 500);
     }
 
-        // --- RBScripts.net ---
+    // --- RBScripts.net ---
     if (currentUrl.includes('rbscripts.net')) {
         updateStatus('Processing RBScripts...');
 
@@ -914,6 +929,148 @@
             document.addEventListener('DOMContentLoaded', startObservation);
         } else {
             startObservation();
+        }
+    }
+
+    // --- PlatoBoost ---
+    if (currentUrl.includes('auth.platorelay.com') || currentUrl.includes('platoboost.com')) {
+
+        const getTicket = () => {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('d') || params.get('ticket') || window.location.pathname.substring(1);
+        };
+
+        const ticket = getTicket();
+        if (!ticket || ticket.length < 32) {
+            updateStatus('Ticket invalid', true);
+        } else {
+
+            async function encryptAesCtr(plaintext, keyBytes, ivBytes) {
+                const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-CTR' }, false, ['encrypt']);
+                const ciphertext = await crypto.subtle.encrypt(
+                    { name: 'AES-CTR', counter: ivBytes, length: 64 },
+                    key,
+                    new TextEncoder().encode(plaintext)
+                );
+                return Array.from(new Uint8Array(ciphertext)).map(b => b.toString(16).padStart(2, '0')).join('');
+            }
+
+            function stringToCharCodes(str) { return new Uint8Array(str.split('').map(c => c.charCodeAt(0))); }
+
+            function getBrowserFingerprint() {
+                return {
+                    browserInfo: [
+                        { name: 'screen', data: { width: screen.width, height: screen.height, availWidth: screen.availWidth, availHeight: screen.availHeight, colorDepth: screen.colorDepth, pixelDepth: screen.pixelDepth, orientation: { type: screen.orientation?.type || 'landscape-primary', angle: screen.orientation?.angle || 0 } } },
+                        { name: 'navigator', data: { userAgent: navigator.userAgent, platform: navigator.platform || 'Win32', maxTouchPoints: navigator.maxTouchPoints || 0, plugins: { length: navigator.plugins.length, item: Array.from(navigator.plugins).map(p => ({ name: p.name, filename: p.filename, description: p.description })) }, mimeTypes: { length: navigator.mimeTypes.length, item: Array.from(navigator.mimeTypes).map(m => ({ type: m.type, description: m.description, suffixes: m.suffixes })) } } },
+                        { name: 'performance', data: Date.now() },
+                        { name: 'history', data: { length: window.history.length } },
+                        { name: 'webdriver', webdriver: navigator.webdriver || false },
+                        { name: 'connection', data: { effectiveType: navigator.connection?.effectiveType || '4g', downlink: navigator.connection?.downlink || 10, rtt: navigator.connection?.rtt || 50, saveData: navigator.connection?.saveData || false } }
+                    ]
+                };
+            }
+
+            function generateMouseStream() {
+                const events = [];
+                const now = Date.now();
+                for (let i = 0; i < 30; i++) {
+                    events.push({ event: 0, data: { x: Math.random() * screen.width, y: Math.random() * screen.height, target: 'BODY', time: now - (5000 - i * 100) } });
+                }
+                events.push({ event: 1, data: { x: screen.width/2, y: screen.height/2, target: 'BUTTON', time: now } });
+                events.push({ event: 5, data: { time: now, length: events.length } });
+                return JSON.stringify({ events });
+            }
+
+            (async () => {
+                try {
+                    const metaRes = await fetch(`/api/session/metadata?ticket=${encodeURIComponent(ticket)}`);
+                    const metaData = await metaRes.json();
+                    const data = metaData.data;
+
+                    if (data?.key && data.key !== 'KEY_NOT_FOUND') {
+                        const textarea = document.querySelector('textarea');
+                        if (!textarea) {
+                            updateStatus(`✅ KEY: ${data.key}`);
+                            navigator.clipboard?.writeText(data.key);
+                            if (data.url && data.url !== 'about:blank') redirectWithStatus(data.url, 'Redirecting...');
+                            else window.location.reload();
+                        }
+                        return;
+                    }
+
+                    let service = 1;
+                    if (data?.activeRevenueProfile) {
+                        if (data.activeRevenueProfile.mode === 0) service = data.activeRevenueProfile.service;
+                        else if (data.activeRevenueProfile.service & 1) service = 1;
+                        else if (data.activeRevenueProfile.service & 2) service = 2;
+                        else if (data.activeRevenueProfile.service & 4) service = 4;
+                    }
+
+                    const keyBytes = stringToCharCodes(ticket.substring(0, 16));
+                    const ivBytes = stringToCharCodes(ticket.substring(16, 32));
+                    const meta = await encryptAesCtr(JSON.stringify(getBrowserFingerprint()), keyBytes, ivBytes);
+                    const stream = await encryptAesCtr(generateMouseStream(), keyBytes, ivBytes);
+
+                    let resolved = false;
+                    try { const lvRes = await fetch('https://linkvertise.com/favicon.ico'); resolved = lvRes.status === 200; } catch(e) {}
+
+                    const stepRes = await fetch(`/api/session/step?ticket=${encodeURIComponent(ticket)}&service=${service}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ captcha: null, meta, stream, resolved })
+                    });
+                    const stepData = await stepRes.json();
+
+                    if (stepData?.data?.url && stepData.data.url !== 'about:blank') {
+                        redirectWithStatus(stepData.data.url, 'Auto Redirecting...');
+                        return;
+                    }
+
+                    updateStatus('Waiting for key...');
+                    for (let i = 0; i < 15; i++) {
+                        await new Promise(r => setTimeout(r, 1500));
+                        const statusRes = await fetch(`/api/session/status?ticket=${encodeURIComponent(ticket)}`);
+                        const statusData = await statusRes.json();
+                        if (statusData?.data?.key && statusData.data.key !== 'KEY_NOT_FOUND') {
+                            const textarea = document.querySelector('textarea');
+                            if (!textarea) {
+                                updateStatus(`✅ KEY: ${statusData.data.key}`);
+                                navigator.clipboard?.writeText(statusData.data.key);
+                                if (statusData.data.url && statusData.data.url !== 'about:blank') redirectWithStatus(statusData.data.url, 'Found');
+                                else if (statusData.data.destination && statusData.data.destination !== 'about:blank') redirectWithStatus(statusData.data.destination, 'Found');
+                                else window.location.reload();
+                            }
+                            return;
+                        }
+                    }
+                } catch(err) {
+                    updateStatus(`Error: ${err.message}`, true);
+                }
+            })();
+        }
+    }
+
+    // --- Bstshrt ---
+    if (currentUrl.includes('bstshrt.com')) {
+        const initBstShrt = () => {
+            updateStatus('Scanning BstShrt...');
+
+            setTimeout(() => {
+                const scriptsContent = [...document.scripts].map(s => s.innerHTML).join('');
+                const match = scriptsContent.match(/finalUrl[^:]*:[^"]*"([^"\\]+)/);
+
+                if (match && match[1]) {
+                    redirectWithStatus(match[1], 'Final URL found!');
+                } else {
+                    updateStatus('Final URL not found', true);
+                }
+            }, 2000);
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initBstShrt);
+        } else {
+            initBstShrt();
         }
     }
 
