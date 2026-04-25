@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         Simple bypass
 // @namespace    by z3r0d4 and AI
-// @version      0.0.5
+// @version      0.0.6
 // @description  Simple AI made bypass
 // @author       Zero
 // @match        https://linkvertise.com/*
+// @match        https://work.ink/*
 // @match        https://linkzy.space/*
 // @match        https://boost.ink/*
 // @match        https://rekonise.com/*
@@ -101,7 +102,7 @@
         </style>
         <div style="display: flex; align-items: center; gap: 8px;">
             <div class="status-icon"></div>
-            <div class="status-text">🔓 BYPASSING PLEASE WAIT...</div>
+            <div class="status-text">BYPASSING PLEASE WAIT...</div>
         </div>
         <div class="status-detail" id="bypass-status-detail">Initializing...</div>
     `;
@@ -198,6 +199,467 @@
             updateStatus('Backend request failed: ' + err.message, true);
             console.error(err);
         });
+    }
+
+    // --- work.ink ---
+    if (location.hostname === 'work.ink' || location.hostname === 'paste.work.ink' || location.hostname === 'outgoing.work.ink') {
+        if (location.pathname === '/' || location.pathname === '' || location.pathname.startsWith('/token/')) return;
+
+        (function() {
+            let ws = null;
+            let realWebSocket = window.WebSocket;
+            let wsReady = false;
+            let bypassDone = false;
+            let startTime = Date.now();
+            const sessionId = Math.random().toString(36).substring(2, 15);
+            const MINIMUM_TIME = 20;
+
+            let hResolve, yResolve, gResolve;
+
+            let webSocketBlocked = true;
+            window.WebSocket = function(url, protocols) {
+                if (webSocketBlocked && url && url.includes('work.ink')) {
+                    return {
+                        readyState: 3,
+                        send: () => {},
+                        close: () => {},
+                        addEventListener: () => {},
+                        removeEventListener: () => {},
+                        onopen: null,
+                        onclose: null,
+                        onmessage: null,
+                        onerror: null
+                    };
+                }
+                return new realWebSocket(url, protocols);
+            };
+            window.WebSocket.prototype = realWebSocket.prototype;
+            window.WebSocket.CONNECTING = 0;
+            window.WebSocket.OPEN = 1;
+            window.WebSocket.CLOSING = 2;
+            window.WebSocket.CLOSED = 3;
+
+            function sendWs(data) {
+                if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+            }
+
+            function update(message, isError) {
+                const panel = document.getElementById('bypass-status-panel');
+                if (panel) {
+                    const detail = panel.querySelector('#bypass-status-detail');
+                    if (detail) {
+                        detail.textContent = message;
+                        detail.style.color = isError ? '#ff6666' : '#aaaaaa';
+                    }
+                }
+            }
+
+            // Turnstile (captcha)
+            function showTurnstile(action) {
+                return new Promise((resolve) => {
+                    const container = document.createElement('div');
+                    container.id = 'bypass-turnstile-container';
+                    container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) translateY(90px);z-index:9999999;';
+                    document.body.appendChild(container);
+                    update('Complete Turnstile captcha...');
+                    const scriptId = 'bypass-turnstile-script';
+                    if (!document.getElementById(scriptId)) {
+                        const script = document.createElement('script');
+                        script.id = scriptId;
+                        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+                        script.async = true;
+                        script.defer = true;
+                        document.head.appendChild(script);
+                    }
+                    const waitTurnstile = setInterval(() => {
+                        if (window.turnstile && typeof window.turnstile.render === 'function') {
+                            clearInterval(waitTurnstile);
+                            window.turnstile.render('#bypass-turnstile-container', {
+                                sitekey: '0x4AAAAAAAJoXhmMXwq7jgK9',
+                                theme: 'dark',
+                                action: action || undefined,
+                                callback: (token) => {
+                                    container.remove();
+                                    resolve(token);
+                                }
+                            });
+                        }
+                    }, 100);
+                });
+            }
+
+            // hCaptcha
+            function showHCaptcha() {
+                return new Promise((resolve, reject) => {
+                    const container = document.createElement('div');
+                    container.id = 'wk-hcaptcha-container';
+                    container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) translateY(90px);z-index:9999999;';
+                    document.body.appendChild(container);
+                    update('Complete hCaptcha...');
+                    const scriptId = 'bypass-hcaptcha-script';
+                    if (!document.getElementById(scriptId)) {
+                        const script = document.createElement('script');
+                        script.id = scriptId;
+                        script.src = 'https://js.hcaptcha.com/1/api.js?render=explicit&recaptchacompat=on&sentry=false';
+                        script.async = true;
+                        script.defer = true;
+                        script.onerror = () => reject(new Error('hCaptcha error'));
+                        document.head.appendChild(script);
+                    }
+                    const checkHCaptcha = setInterval(() => {
+                        if (window.hcaptcha && typeof window.hcaptcha.render === 'function') {
+                            clearInterval(checkHCaptcha);
+                            try {
+                                window.hcaptcha.render('wk-hcaptcha-container', {
+                                    sitekey: '74184788-498a-4910-ba14-be9c2acc3f98',
+                                    theme: 'dark',
+                                    callback: (token) => {
+                                        container.remove();
+                                        resolve(token);
+                                    },
+                                    'error-callback': (err) => {
+                                        container.remove();
+                                        reject(new Error('hCaptcha error: ' + err));
+                                    }
+                                });
+                            } catch (e) {
+                                container.remove();
+                                reject(e);
+                            }
+                        }
+                    }, 100);
+                });
+            }
+
+            function redirectToDest(url) {
+                update('Bypassed');
+                const elapsed = (Date.now() - startTime) / 1000;
+                const wait = Math.max(0, MINIMUM_TIME - elapsed);
+                if (wait > 0) {
+                    let remaining = Math.ceil(wait);
+                    update(`Waiting ${remaining}s...`);
+                    const interval = setInterval(() => {
+                        remaining--;
+                        if (remaining <= 0) {
+                            clearInterval(interval);
+                            window.location.href = url;
+                        } else {
+                            update(`Waiting ${remaining}s...`);
+                        }
+                    }, 1000);
+                } else {
+                    window.location.href = url;
+                }
+            }
+
+            async function handleNegotiation(responseData) {
+                if (bypassDone) return;
+                try {
+                    const resp = JSON.parse(responseData);
+                } catch (e) {
+                    return;
+                }
+            }
+
+            // backend
+            function negotiate(demands) {
+                if (bypassDone) return;
+                fetch('https://skipped.lol/api/evade/negotiate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        demands: demands,
+                        direction: 'incoming',
+                        session_id: sessionId,
+                        client_timestamp: Date.now()
+                    })
+                })
+                    .then(res => res.json())
+                    .then(async (t) => {
+                    if (bypassDone) return;
+                    if (t.success === false && t.error) {
+                        update(t.error, true);
+                        bypassDone = true;
+                        return;
+                    }
+                    if (t.conditions === 'destination' && t.destinationURL) {
+                        bypassDone = true;
+                        redirectToDest(t.destinationURL);
+                        return;
+                    }
+                    if (t.conditions === 'prxd') {
+                        if ((Date.now() - startTime) < 9000) {
+                            update('VPN/Proxy detected. Turn off and Reload', true);
+                            bypassDone = true;
+                            return;
+                        }
+                    }
+                    if (t.conditions === 'social_done' && hResolve) hResolve();
+                    if (t.conditions === 'monetization_done' && yResolve) yResolve();
+                    if (t.conditions === 'offers_state' && typeof gResolve === 'function') gResolve(t);
+                    if (t.conditions === 'ping' && t.pingMsg) {
+                        setTimeout(() => sendWs(t.pingMsg), 2000);
+                    }
+
+                    if (t.sM || t.raM || t.osM || t.mM || t.coM || t.hasOwnProperty('sM')) {
+                        (async () => {
+                            let turnstileToken = null;
+                            if (t.tat) {
+                                try {
+                                    turnstileToken = await showTurnstile(t.tat);
+                                } catch (e) {
+                                    update('Error whit Turnstile', true);
+                                    bypassDone = true;
+                                    return;
+                                }
+                                // Send token to backend
+                                try {
+                                    const res = await fetch('https://skipped.lol/api/evade/negotiate', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ turnstile: turnstileToken })
+                                    }).then(r => r.json());
+                                    if (res.tst) sendWs(res.tst);
+                                } catch (e) {
+                                    update('Error validating Turnstile', true);
+                                    bypassDone = true;
+                                    return;
+                                }
+                            }
+
+                            // hCaptcha
+                            if (t.hcr) {
+                                const hcsn = parseInt(t.hcsn, 10) || 1;
+                                for (let i = 0; i < hcsn; i++) {
+                                    update(`Complete hCaptcha (${i+1}/${hcsn})...`);
+                                    let hCapToken;
+                                    try {
+                                        hCapToken = await showHCaptcha();
+                                    } catch (e) {
+                                        update('Error whit hCaptcha', true);
+                                        bypassDone = true;
+                                        return;
+                                    }
+                                    // send token hCaptcha
+                                    try {
+                                        const res = await fetch('https://skipped.lol/api/evade/negotiate', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ hCapToken })
+                                        }).then(r => r.json());
+                                        if (res.hcresp || res.tst) sendWs(res.hcresp || res.tst);
+                                    } catch (e) {
+                                        update('Error validating hCaptcha', true);
+                                        bypassDone = true;
+                                        return;
+                                    }
+                                }
+                                update('hCaptcha completed...');
+                            }
+
+                            if (t.envC) sendWs(t.envC);
+                            if (t.pinger) sendWs(t.pinger);
+
+                            if (t.sM && t.sM.length) {
+                                for (let i = 0; i < t.sM.length; i++) {
+                                    update(`Completing social ${i+1}/${t.sM.length}...`);
+                                    sendWs(t.sM[i].encrypted || t.sM[i]);
+                                    if (t.flM) sendWs(t.flM);
+                                    // wait for backend resolve social_done
+                                    await new Promise(resolve => { hResolve = resolve; });
+                                    hResolve = null;
+                                    await new Promise(r => setTimeout(r, 10));
+                                    if (t.fM) sendWs(t.fM);
+                                }
+                            }
+
+                            if (bypassDone) return;
+
+                            const allOffers = [
+                                ...(t.mM || []).map(o => ({ ...o, source: 'monetization' })),
+                                ...(t.coM || []).map(o => ({ ...o, source: 'customOffer' }))
+                            ].sort((a, b) => a.id - b.id);
+                            const processedIds = new Set();
+
+                            for (let i = 0; i < allOffers.length; i++) {
+                                const offer = allOffers[i];
+                                if (processedIds.has(offer.id)) continue;
+                                processedIds.add(offer.id);
+                                const enc = offer.encrypted || JSON.stringify(offer);
+
+                                if (offer.source === 'customOffer') {
+                                    update(`Completing ${offer.name}...`);
+                                    sendWs(offer.initEncrypted);
+                                    sendWs(offer.startEncrypted);
+                                    if (t.flM) sendWs(t.flM);
+                                    await new Promise(r => setTimeout(r, 500));
+                                    if (t.fM) sendWs(t.fM);
+                                    await new Promise(resolve => { yResolve = resolve; });
+                                    yResolve = null;
+                                    await new Promise(r => setTimeout(r, 50));
+                                } else if (offer.id === 80) {
+                                    update('Completing Stake...');
+                                    sendWs(enc);
+                                    await new Promise(resolve => {
+                                        yResolve = resolve;
+                                        setTimeout(() => { if (yResolve) { yResolve(); yResolve = null; } }, 140000);
+                                    });
+                                } else if (offer.id === 25 || offer.id === 34) {
+                                    if (offer.event === 'start') {
+                                        update(offer.id === 25 ? 'Completing Opera...' : 'Can take 2 mins...');
+                                        sendWs(enc);
+                                        const install = allOffers.find(o => o.id === offer.id && o.event === 'installClicked');
+                                        if (install) sendWs(install.encrypted || JSON.stringify(install));
+                                        // Opera cookie bypass
+                                        if (offer.id === 25) {
+                                            try {
+                                                update('Doing Opera...');
+                                                document.cookie = '__cf_bm=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.work.ink;';
+                                                document.cookie = '__cf_bm=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=work.ink;';
+                                                const headResp = await fetch('https://work.ink/_api/v2/affiliate/operaGX', { method: 'HEAD', headers: { 'User-Agent': 'Opera Installer/1.0' } });
+                                                const cfCookie = headResp.headers.get('set-cookie')?.match(/__cf_bm=([^;\s]+)/);
+                                                const cookieStr = cfCookie ? `__cf_bm=${cfCookie[1]}` : '';
+                                                const postResp = await fetch('https://work.ink/_api/v2/callback/operaGX', {
+                                                    method: 'POST',
+                                                    headers: {
+                                                        'Content-Type': 'application/json',
+                                                        'User-Agent': 'Opera Installer/1.0',
+                                                        'Cookie': cookieStr
+                                                    },
+                                                    body: JSON.stringify({ noteligible: true })
+                                                });
+                                                if (postResp.status === 200) {
+                                                    await new Promise(r => setTimeout(r, 50));
+                                                } else {
+                                                    update('Completing Opera...');
+                                                }
+                                            } catch (e) {
+                                                update('Ignoring error...');
+                                            }
+                                        }
+                                        if (bypassDone) continue;
+                                        if (t.flM) sendWs(t.flM);
+                                        await new Promise(resolve => {
+                                            yResolve = resolve;
+                                            setTimeout(() => { if (yResolve) { yResolve(); yResolve = null; } }, 300000);
+                                        });
+                                        if (t.fM) sendWs(t.fM);
+                                    }
+                                } else {
+                                    sendWs(enc);
+                                    await new Promise(r => setTimeout(r, 50));
+                                }
+                                if (bypassDone) return;
+                                if (i < allOffers.length - 1 && bypassDone) return;
+                            }
+
+                            // Finalizing
+                            if (t.fM) sendWs(t.fM);
+                            update('Waiting final link...');
+                            await new Promise((resolve, reject) => {
+                                gResolve = resolve;
+                                setTimeout(() => {
+                                    if (gResolve) {
+                                        gResolve = null;
+                                        update('Bypass timeout. Reload page', true);
+                                        bypassDone = true;
+                                    }
+                                }, 180000);
+                            });
+                        })();
+                    }
+                })
+                    .catch(err => {
+                    update('Error whit backend', true);
+                    bypassDone = true;
+                });
+            }
+
+            // Start bypass
+            async function startWorkinkBypass() {
+                let monocle = null;
+                while (!monocle && !bypassDone) {
+                    const input = document.querySelector('form.monocle-enriched input[name="monocle"]');
+                    if (input && input.value) {
+                        monocle = input.value;
+                        break;
+                    }
+                    await new Promise(r => setTimeout(r, 200));
+                }
+                if (!monocle) {
+                    update('token monocle not found', true);
+                    bypassDone = true;
+                    return;
+                }
+
+                // backend call
+                let initData;
+                try {
+                    const res = await fetch('https://skipped.lol/api/evade/init', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mcl: monocle, session_id: sessionId })
+                    });
+                    initData = await res.json();
+                } catch (e) {
+                    update('Error in init', true);
+                    bypassDone = true;
+                    return;
+                }
+                if (!initData.tok) {
+                    update('Invalid token from backend', true);
+                    bypassDone = true;
+                    return;
+                }
+
+                const pageHtml = await fetch(location.href).then(r => r.text());
+                const userIdMatch = pageHtml.match(/f_user_id\s*:\s*["']?(\d+)["']?/);
+                if (!userIdMatch) {
+                    update('user ID not found', true);
+                    bypassDone = true;
+                    return;
+                }
+                const userId = userIdMatch[1];
+                const pathParts = location.pathname.split('/').filter(Boolean);
+                const custom = pathParts[1] || pathParts[0] || '';
+                const sr = new URLSearchParams(location.search).get('sr') || '';
+
+                // WS URL
+                const wsUrl = `wss://work.ink/_api/v2/ws?userId=${userId}&custom=${custom}&referrer=https://work.ink/&toLink=&serverOverride=${sr}&customerSessionToken=${initData.tok}&monocleAssessment=${monocle}`;
+
+                webSocketBlocked = false;
+                ws = new realWebSocket(wsUrl);
+                webSocketBlocked = true;
+
+                ws.onopen = () => {
+                    startTime = Date.now();
+                    wsReady = true;
+                    if (initData.mcl) sendWs(initData.mcl);
+                    if (initData.pinger) sendWs(initData.pinger);
+                    update('Conected, waiting...');
+                };
+
+                ws.onmessage = (e) => {
+                    if (typeof e.data === 'string') {
+                        negotiate(e.data);
+                    }
+                };
+
+                ws.onerror = () => {
+                    if (!bypassDone) update('Conection error', true);
+                };
+
+                ws.onclose = (e) => {
+                    if (!bypassDone) update(`Closed connection: ${e.code}`, true);
+                };
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', startWorkinkBypass);
+            } else {
+                startWorkinkBypass();
+            }
+        })();
     }
 
     // --- Link-Unlock.com ---
@@ -607,7 +1069,7 @@
             const response = await originalFetch(...args);
 
             if (url.includes('/api/link')) {
-                updateStatus('🎯 API intercepted...');
+                updateStatus('馃幆 API intercepted...');
                 const clone = response.clone();
                 clone.json().then(async (data) => {
                     const urlParams = new URLSearchParams(url.split('?')[1]);
@@ -615,7 +1077,7 @@
                     const linkId = data?.id;
 
                     if (linkId && linkActionId) {
-                        updateStatus('✅ Completing...');
+                        updateStatus('鉁?Completing...');
                         const completeRes = await originalFetch('/api/link-completed', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -626,7 +1088,7 @@
                             redirectWithStatus(completeData.destination_url, 'Redirecting...');
                         }
                     }
-                }).catch(() => updateStatus('❌ Error', true));
+                }).catch(() => updateStatus('鉂?Error', true));
             }
             return response;
         };
@@ -787,7 +1249,7 @@
 
         setTimeout(() => {
             if (typeof fun9 === 'function') {
-                updateStatus('✅ Executing fun9()', true);
+                updateStatus('鉁?Executing fun9()', true);
                 fun9();
             } else {
 
@@ -798,7 +1260,7 @@
                         const match = content.match(/window\.open\s*\(\s*['"]([^'"]+)['"]/);
                         if (match && match[1]) {
                             const url = match[1];
-                            updateStatus('✅ redirecting..', true);
+                            updateStatus('鉁?redirecting..', true);
                             setTimeout(() => {
                                 window.location.href = url;
                             }, 500);
@@ -818,7 +1280,7 @@
                 clearInterval(wait);
                 btn.removeAttribute('disabled');
                 btn.disabled = false;
-                updateStatus('✅ redirecting..', true);
+                updateStatus('鉁?redirecting..', true);
                 btn.click();
             }
         }, 500);
@@ -992,7 +1454,7 @@
                     if (data?.key && data.key !== 'KEY_NOT_FOUND') {
                         const textarea = document.querySelector('textarea');
                         if (!textarea) {
-                            updateStatus(`✅ KEY: ${data.key}`);
+                            updateStatus(`鉁?KEY: ${data.key}`);
                             navigator.clipboard?.writeText(data.key);
                             if (data.url && data.url !== 'about:blank') redirectWithStatus(data.url, 'Redirecting...');
                             else window.location.reload();
@@ -1036,7 +1498,7 @@
                         if (statusData?.data?.key && statusData.data.key !== 'KEY_NOT_FOUND') {
                             const textarea = document.querySelector('textarea');
                             if (!textarea) {
-                                updateStatus(`✅ KEY: ${statusData.data.key}`);
+                                updateStatus(`鉁?KEY: ${statusData.data.key}`);
                                 navigator.clipboard?.writeText(statusData.data.key);
                                 if (statusData.data.url && statusData.data.url !== 'about:blank') redirectWithStatus(statusData.data.url, 'Found');
                                 else if (statusData.data.destination && statusData.data.destination !== 'about:blank') redirectWithStatus(statusData.data.destination, 'Found');
