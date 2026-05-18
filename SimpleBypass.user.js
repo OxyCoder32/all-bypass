@@ -1,11 +1,28 @@
 // ==UserScript==
 // @name         Simple bypass
 // @namespace    by z3r0d4 and AI
-// @version      0.0.6
+// @version      0.0.7
 // @description  Simple AI made bypass
 // @author       Zero
 // @match        https://linkvertise.com/*
 // @match        https://work.ink/*
+// @match        https://loot-link.com/*
+// @match        https://lootboost.net/*
+// @match        https://ultra-links.net/*
+// @match        https://loot-links.com/*
+// @match        https://lootlink.org/*
+// @match        https://lootlinks.co/*
+// @match        https://lootdest.info/*
+// @match        https://lootdest.org/*
+// @match        https://lootdest.com/*
+// @match        https://links-loot.com/*
+// @match        https://linksloot.net/*
+// @match        https://lootlinks.com/*
+// @match        https://best-links.org/*
+// @match        https://loot-labs.com/*
+// @match        https://lootlabs.com/*
+// @match        https://links-lootlabs.gg/*
+// @match        https://links.lootlabs.gg/*
 // @match        https://linkzy.space/*
 // @match        https://boost.ink/*
 // @match        https://rekonise.com/*
@@ -36,6 +53,8 @@
 // @match        https://bstshrt.com/*
 // @match        https://link4sub.com/*
 // @match        https://*.tapvietcode.com/*
+// @match        https://reshortfly.com/*
+// @match        https://spdmteam.com/*
 // @grant        none
 // @downloadURL  https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
 // @updateURL    https://github.com/OxyCoder32/all-bypass/raw/refs/heads/main/SimpleBypass.user.js
@@ -660,6 +679,424 @@
                 startWorkinkBypass();
             }
         })();
+    }
+
+
+    // --- LootLabs / LootLink ---
+    if (currentUrl.includes('loot-link.com') || currentUrl.includes('lootboost.net') || currentUrl.includes('ultra-links.net') || currentUrl.includes('loot-links.com') || currentUrl.includes('lootlink.org') || currentUrl.includes('lootlinks.co') || currentUrl.includes('lootdest.info') || currentUrl.includes('lootdest.org') || currentUrl.includes('lootdest.com') || currentUrl.includes('links-loot.com') || currentUrl.includes('linksloot.net') || currentUrl.includes('lootlinks.com') || currentUrl.includes('best-links.org') || currentUrl.includes('loot-labs.com') || currentUrl.includes('lootlabs.com') || currentUrl.includes('links-lootlabs.gg') || currentUrl.includes('links.lootlabs.gg')) {
+        updateStatus('Initializing LootLabs bypass...');
+
+        const BL_TASKS = [18, 2, 33, 7, 21, 49, 48];
+        const TC_PROXY_URL = 'https://lootlink-backend-b526.onrender.com/tc';
+        const SKIPPED_LOL_URL = 'https://skipped.lol/api/evade/ll';
+        const INCENTIVE_SERVER_DOMAIN = 'onsultingco.com';
+
+        let pageKey = null;
+        let pageTid = null;
+        let syncDomain = null;
+        let serverDomain = null;
+        let pageIsLoot = null;
+        let pageSessionUuid = null;
+        let tcProcessed = false;
+        let fallbackUsed = false;
+        let primaryWs = null;
+        let fallbackWs = null;
+        let activeWs = null;
+        let methodStartTime = null;
+        let pendingTcData = null;
+        let pollAttempts = 0;
+        const MAX_POLL_ATTEMPTS = 150;
+
+        function decodeURIxor(encodedString, prefixLength = 5) {
+            const base64Decoded = atob(encodedString);
+            const prefix = base64Decoded.substring(0, prefixLength);
+            const encodedPortion = base64Decoded.substring(prefixLength);
+            const decodedChars = new Array(encodedPortion.length);
+            for (let i = 0; i < encodedPortion.length; i++) {
+                decodedChars[i] = String.fromCharCode(encodedPortion.charCodeAt(i) ^ prefix.charCodeAt(i % prefix.length));
+            }
+            return decodedChars.join('');
+        }
+
+        async function generateBotD(sessionUuid) {
+            try {
+                const uppercase = sessionUuid.match(/[A-Z]/g) || [];
+                const keyStr = uppercase.slice(0, 4).join('') || 'KEY1';
+                const uuidBytes = new TextEncoder().encode(sessionUuid);
+                const keyBytes = new TextEncoder().encode(keyStr);
+                const xorResult = new Uint8Array(uuidBytes.length);
+                for (let i = 0; i < uuidBytes.length; i++) {
+                    xorResult[i] = uuidBytes[i] ^ keyBytes[i % keyBytes.length];
+                }
+                const transformed = btoa(String.fromCharCode(...xorResult));
+                const aesKeyRaw = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(transformed));
+                const aesKey = await crypto.subtle.importKey('raw', aesKeyRaw, 'AES-GCM', false, ['encrypt']);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const timestamp = Date.now();
+                const botd = {
+                    bot: false,
+                    timestamp: timestamp,
+                    webGLSolution: {
+                        uuid: sessionUuid,
+                        nonce: Math.floor(Math.random() * 3000) + 1,
+                        time: Math.floor(Math.random() * 5000) + 100
+                    }
+                };
+                const plaintext = new TextEncoder().encode(JSON.stringify(botd));
+                const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
+                const encrypted = btoa(String.fromCharCode(...new Uint8Array(iv), ...new Uint8Array(ciphertext)));
+                botd.encrypted = encrypted;
+                return JSON.stringify(botd);
+            } catch (e) {
+                updateStatus('BotD generation failed', true);
+                return null;
+            }
+        }
+
+        class RobustWebSocket {
+            constructor(url, options = {}) {
+                this.url = url;
+                this.reconnectDelay = options.initialDelay || 1000;
+                this.heartbeatInterval = 1000;
+                this.connectionTimeout = options.connectionTimeout || 3000;
+                this.maxReconnectAttempts = 2;
+                this.ws = null;
+                this.reconnectTimeout = null;
+                this.heartbeatTimer = null;
+                this.connectionTimer = null;
+                this.reconnectAttempts = 0;
+                this.resolved = false;
+                this.manualDisconnect = false;
+                this.onConnectionTimeout = options.onConnectionTimeout || null;
+                this.messageTimeout = options.messageTimeout || 20000;
+                this.messageTimer = null;
+            }
+
+            connect() {
+                if (this.resolved || this.manualDisconnect || this.reconnectAttempts >= this.maxReconnectAttempts) return;
+                this.clearConnectionTimer();
+                this.connectionTimer = setTimeout(() => {
+                    if (!this.resolved) {
+                        if (this.ws) { this.ws.close(); this.ws = null; }
+                        if (this.onConnectionTimeout) this.onConnectionTimeout();
+                        else this.scheduleReconnect();
+                    }
+                }, this.connectionTimeout);
+                try {
+                    this.ws = new WebSocket(this.url);
+                    this.ws.onopen = () => this.onOpen();
+                    this.ws.onmessage = e => this.onMessage(e);
+                    this.ws.onclose = (e) => this.onClose(e);
+                    this.ws.onerror = () => {};
+                } catch (e) {
+                    this.clearConnectionTimer();
+                    this.scheduleReconnect();
+                }
+            }
+
+            clearConnectionTimer() { if (this.connectionTimer) { clearTimeout(this.connectionTimer); this.connectionTimer = null; } }
+            clearMessageTimer() { if (this.messageTimer) { clearTimeout(this.messageTimer); this.messageTimer = null; } }
+
+            onOpen() {
+                this.clearConnectionTimer();
+                this.reconnectAttempts = 0;
+                if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
+                this.sendHeartbeat();
+                this.startHeartbeat();
+                if (this.messageTimeout !== Infinity) {
+                    this.messageTimer = setTimeout(() => {
+                        if (!this.resolved) {
+                            this.disconnect();
+                            if (this.onConnectionTimeout) this.onConnectionTimeout();
+                        }
+                    }, this.messageTimeout);
+                }
+            }
+
+            onClose(event) {
+                this.clearConnectionTimer();
+                this.clearMessageTimer();
+                this.stopHeartbeat();
+                if (this.manualDisconnect || this.resolved) return;
+                this.scheduleReconnect();
+            }
+
+            onMessage(event) {
+                if (event.data && event.data.includes('r:')) {
+                    this.clearMessageTimer();
+                    let publisherLink = event.data.replace('r:', '').trim();
+                    if (publisherLink) {
+                        let finalUrl = publisherLink;
+                        const isBase64 = /^[A-Za-z0-9+/=]+$/.test(publisherLink);
+                        if (isBase64) {
+                            try {
+                                finalUrl = decodeURIComponent(decodeURIxor(publisherLink));
+                            } catch (e) {
+                                finalUrl = publisherLink;
+                            }
+                        }
+                        if (finalUrl && (finalUrl.startsWith('http://') || finalUrl.startsWith('https://'))) {
+                            this.resolved = true;
+                            this.disconnect();
+                            redirectWithStatus(finalUrl, 'LootLabs bypassed! Redirecting...');
+                        }
+                    }
+                }
+            }
+
+            sendHeartbeat() { if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send('0'); }
+            startHeartbeat() { this.stopHeartbeat(); this.heartbeatTimer = setInterval(() => this.sendHeartbeat(), this.heartbeatInterval); }
+            stopHeartbeat() { if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; } }
+
+            scheduleReconnect() {
+                if (this.manualDisconnect || this.resolved) return;
+                if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+                const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts);
+                this.reconnectAttempts++;
+                this.reconnectTimeout = setTimeout(() => this.connect(), delay);
+            }
+
+            disconnect() {
+                this.clearConnectionTimer();
+                this.clearMessageTimer();
+                this.manualDisconnect = true;
+                this.stopHeartbeat();
+                if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
+                if (this.ws) { this.ws.close(); this.ws = null; }
+            }
+        }
+
+        async function completeTaskViaSkippedLol(taskUrl) {
+            let urlToSend = taskUrl;
+            if (urlToSend && urlToSend.startsWith('//')) urlToSend = 'https:' + urlToSend;
+            const payload = { ID: 17, URL: urlToSend };
+            updateStatus('Completing task 17 via skipped.lol...');
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 8000);
+            try {
+                const response = await fetch(SKIPPED_LOL_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const rawText = await response.text();
+                const parsed = JSON.parse(rawText);
+                if (parsed && parsed.status === 'ok') {
+                    updateStatus('Task 17 completed, establishing connection...');
+                    return true;
+                } else {
+                    throw new Error('Unexpected response from skipped.lol');
+                }
+            } catch (err) {
+                updateStatus('Error calling skipped.lol', true);
+                throw err;
+            }
+        }
+
+        function startWebSocketForTask(taskData, isFallback = false, subdomainAttempt = 0, sameSubdomainRetry = 0) {
+            if (!taskData || !taskData.urid) return null;
+            const { urid, task_id, session_id } = taskData;
+            const subdomainIndex = (parseInt(urid.substr(-5)) + subdomainAttempt) % 3;
+            let wsUrl = `wss://${subdomainIndex}.${serverDomain}/c?uid=${urid}&cat=${task_id}&key=${pageKey}`;
+            if (session_id) wsUrl += `&session_id=${session_id}`;
+            if (pageIsLoot !== null) wsUrl += `&is_loot=${pageIsLoot ? '1' : '0'}`;
+            if (pageTid) wsUrl += `&tid=${pageTid}`;
+
+            const ws = new RobustWebSocket(wsUrl, {
+                initialDelay: 1000,
+                connectionTimeout: isFallback ? 15000 : 3000,
+                messageTimeout: isFallback ? Infinity : 20000,
+                onConnectionTimeout: () => {
+                    if (sameSubdomainRetry < 1 && !ws.resolved) {
+                        startWebSocketForTask(taskData, isFallback, subdomainAttempt, sameSubdomainRetry + 1);
+                    } else if (subdomainAttempt < 2 && !ws.resolved) {
+                        startWebSocketForTask(taskData, isFallback, subdomainAttempt + 1, 0);
+                    } else {
+                        if (primaryWs) {
+                            primaryWs.disconnect();
+                            primaryWs = null;
+                        }
+                        if (fallbackUsed) return;
+                        fallbackUsed = true;
+                        updateStatus('Method 1 failed, trying method 2...');
+                        const fallbackTask = selectFallbackTask(pendingTcData || []);
+                        if (fallbackTask && fallbackTask.urid) {
+                            startWebSocketForTask(fallbackTask, true);
+                        } else {
+                            updateStatus('Bypass failed - no suitable task', true);
+                        }
+                    }
+                }
+            });
+
+            if (isFallback) {
+                if (fallbackWs) fallbackWs.disconnect();
+                fallbackWs = ws;
+            } else {
+                if (primaryWs) primaryWs.disconnect();
+                primaryWs = ws;
+            }
+            activeWs = ws;
+            ws.connect();
+
+            try {
+                const beaconUrl = `https://${subdomainIndex}.${serverDomain}/st?uid=${urid}&cat=${task_id}`;
+                navigator.sendBeacon(beaconUrl);
+            } catch (_) {}
+
+            if (syncDomain) {
+                fetch(`https://${syncDomain}/td?ac=1&urid=${urid}&cat=${task_id}&tid=${pageTid}`, { credentials: 'include' }).catch(() => {});
+            }
+            return ws;
+        }
+
+        function selectFallbackTask(tasks) {
+            if (!Array.isArray(tasks) || tasks.length === 0) return null;
+            const eligible = tasks.filter(t => t.task_id !== 17);
+            if (eligible.length === 0) return null;
+            eligible.sort((a, b) => (a.auto_complete_seconds || 999) - (b.auto_complete_seconds || 999));
+            return eligible[0];
+        }
+
+        async function verifySession(sessionUuid) {
+            if (!sessionUuid) return;
+            updateStatus('Verifying session...');
+            try {
+                await fetch(`https://${location.hostname}/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session: sessionUuid })
+                });
+            } catch (e) {}
+        }
+
+        async function processTcResponseSequential(data) {
+            if (tcProcessed) return;
+            if (!pageKey || !serverDomain) {
+                pendingTcData = data;
+                return;
+            }
+            tcProcessed = true;
+
+            const task17 = Array.isArray(data) ? data.find(item => item.task_id === 17) : null;
+
+            const runFallback = async (reason = 'missing') => {
+                if (fallbackUsed) return;
+                fallbackUsed = true;
+                updateStatus('Using fallback task...');
+                if (primaryWs) {
+                    primaryWs.disconnect();
+                    primaryWs = null;
+                }
+                methodStartTime = performance.now();
+                const fallbackTask = selectFallbackTask(data);
+                if (fallbackTask && fallbackTask.urid) {
+                    if (fallbackTask.auto_complete_seconds) {
+                        updateStatus(`Waiting ${fallbackTask.auto_complete_seconds}s for task ${fallbackTask.task_id}...`);
+                    }
+                    startWebSocketForTask(fallbackTask, true);
+                } else {
+                    updateStatus('Bypass failed - no suitable task found', true);
+                }
+            };
+
+            if (task17 && task17.ad_url) {
+                updateStatus('Found task 17, using skipped.lol...');
+                methodStartTime = performance.now();
+                try {
+                    await completeTaskViaSkippedLol(task17.ad_url);
+                    const ws = startWebSocketForTask(task17, false);
+                    const fallbackTimeoutId = setTimeout(() => {
+                        if (ws && !ws.resolved) {
+                            ws.disconnect();
+                            primaryWs = null;
+                            runFallback('error');
+                        }
+                    }, 10000);
+                    if (ws) ws.fallbackTimeoutId = fallbackTimeoutId;
+                } catch (err) {
+                    updateStatus('Skipped.lol failed, trying fallback...', true);
+                    await runFallback('error');
+                }
+            } else {
+                await runFallback('missing');
+            }
+        }
+
+        const { fetch: originalFetch } = window;
+        window.fetch = function(url, config) {
+            const urlStr = typeof url === 'string' ? url : (url && url.url ? url.url : '');
+            if ((urlStr.includes('nerventualken.com/tc') || urlStr.includes('INCENTIVE_SYNCER_DOMAIN/tc')) && config && config.method === 'POST') {
+                let bodyObj = {};
+                if (config.body) {
+                    try { bodyObj = typeof config.body === 'string' ? JSON.parse(config.body) : config.body; } catch(e) {}
+                }
+                const sessionId = String(Math.floor(Math.random() * 1000000000000000000));
+                const modifiedBody = { ...bodyObj, bl: BL_TASKS, session: sessionId, max_tasks: 1, num_of_tasks: '10' };
+                if (pageSessionUuid) {
+                    generateBotD(pageSessionUuid).then(botd => {
+                        if (botd) modifiedBody.botd = botd;
+                        modifiedBody.botds = pageSessionUuid;
+                    });
+                }
+                updateStatus('Fetching tasks...');
+                return originalFetch(TC_PROXY_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(modifiedBody)
+                }).then(response => {
+                    if (response.status === 428) {
+                        updateStatus('Bypass patched / Bot detected', true);
+                        return new Response(JSON.stringify({ error: 'Bypass patched' }), { status: 428 });
+                    }
+                    if (!response.ok) throw new Error(`Proxy returned ${response.status}`);
+                    return response.clone().json().then(data => {
+                        processTcResponseSequential(data);
+                        return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                    });
+                }).catch(err => {
+                    updateStatus('Proxy fetch failed', true);
+                    return originalFetch(url, config);
+                });
+            }
+            return originalFetch(url, config);
+        };
+
+        async function checkGlobalsAndStart() {
+            try { pageKey = (typeof KEY !== 'undefined') ? KEY : window.KEY; } catch(e) { pageKey = window.KEY; }
+            try { pageTid = (typeof TID !== 'undefined') ? TID : window.TID; } catch(e) { pageTid = window.TID; }
+            try { syncDomain = (typeof INCENTIVE_SYNCER_DOMAIN !== 'undefined') ? INCENTIVE_SYNCER_DOMAIN : window.INCENTIVE_SYNCER_DOMAIN; } catch(e) { syncDomain = window.INCENTIVE_SYNCER_DOMAIN; }
+            try { serverDomain = (typeof INCENTIVE_SERVER_DOMAIN !== 'undefined') ? INCENTIVE_SERVER_DOMAIN : window.INCENTIVE_SERVER_DOMAIN; } catch(e) { serverDomain = window.INCENTIVE_SERVER_DOMAIN; }
+            if (!serverDomain) serverDomain = INCENTIVE_SERVER_DOMAIN;
+            try { pageIsLoot = (typeof is_loot !== 'undefined') ? is_loot : (window.is_loot !== undefined ? window.is_loot : null); } catch(e) { pageIsLoot = window.is_loot !== undefined ? window.is_loot : null; }
+            try { pageSessionUuid = (typeof document !== 'undefined' && document.session) ? document.session : (window.session || null); } catch(e) { pageSessionUuid = window.session || null; }
+
+            pollAttempts++;
+
+            if (pageKey && syncDomain && serverDomain) {
+                if (pageSessionUuid) await verifySession(pageSessionUuid);
+                if (pendingTcData) {
+                    await processTcResponseSequential(pendingTcData);
+                }
+                return;
+            }
+
+            if (pollAttempts < MAX_POLL_ATTEMPTS) {
+                setTimeout(checkGlobalsAndStart, 100);
+            } else {
+                updateStatus('Required page data not found', true);
+            }
+        }
+
+        updateStatus('Waiting for page data...');
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', checkGlobalsAndStart);
+        } else {
+            checkGlobalsAndStart();
+        }
     }
 
     // --- Link-Unlock.com ---
@@ -1664,5 +2101,109 @@
         }, 500);
     }
 
+    // --- Reshortfly ---
+    if (currentUrl.includes('reshortfly.com')) {
+        updateStatus('Processing Reshortfly...');
+        let attempts = 0;
+
+        const processUnlock = async () => {
+            const form = document.getElementById('go-link');
+            if (!form) {
+                if (++attempts >= 5) {
+                    updateStatus('Form not found', true);
+                    clearInterval(interval);
+                }
+                return;
+            }
+
+            const formData = new FormData(form);
+
+            const csrfToken = form.querySelector('input[name="_csrfToken"]')?.value || '';
+            const adFormData = form.querySelector('input[name="ad_form_data"]')?.value || '';
+            const tokenFields = form.querySelector('input[name="_Token[fields]"]')?.value || '';
+            const tokenUnlocked = form.querySelector('input[name="_Token[unlocked]"]')?.value || '';
+
+            try {
+                updateStatus(`Attempting unlock (${attempts + 1}/5)...`);
+
+                const body = new URLSearchParams();
+                body.append('_method', 'POST');
+                body.append('_csrfToken', csrfToken);
+                body.append('ad_form_data', adFormData);
+                body.append('_Token[fields]', tokenFields);
+                body.append('_Token[unlocked]', tokenUnlocked);
+
+                const response = await fetch('/links/go', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    body: body.toString(),
+                    credentials: 'same-origin'
+                });
+
+                const data = await response.json();
+
+                if (data?.url) {
+                    clearInterval(interval);
+                    redirectWithStatus(data.url, 'Unlocked! Redirecting...');
+                } else if (data?.message && data.message.includes('Bad Request')) {
+                    const response2 = await fetch('/links/go', {
+                        method: 'POST',
+                        body: formData,
+                        credentials: 'same-origin'
+                    });
+                    const data2 = await response2.json();
+                    if (data2?.url) {
+                        clearInterval(interval);
+                        redirectWithStatus(data2.url, 'Unlocked! Redirecting...');
+                    } else if (++attempts >= 5) {
+                        updateStatus(data2?.message || 'Failed to unlock', true);
+                        clearInterval(interval);
+                    }
+                } else if (++attempts >= 5) {
+                    updateStatus(data?.message || 'Max attempts reached', true);
+                    clearInterval(interval);
+                }
+            } catch (err) {
+                console.error('Fetch error:', err);
+                if (++attempts >= 5) {
+                    updateStatus('Error during unlock', true);
+                    clearInterval(interval);
+                }
+            }
+        };
+
+        const interval = setInterval(processUnlock, 2000);
+    }
+
+    // --- SPDMTeam ---
+
+    if (currentUrl.includes('spdmteam.com')) {
+        updateStatus('Processing spdmteam.com link...');
+
+        const apiUrl = location.href.replace('/social/', '/api/social/');
+
+        fetch(apiUrl)
+            .then(response => {
+                if (!response.ok) throw new Error(`API returned ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                const destination = data.script;
+                if (!destination || !destination.startsWith('http')) {
+                    throw new Error('No valid URL in API response');
+                }
+                updateStatus('Destination found! Redirecting...');
+                setTimeout(() => {
+                    window.location.href = destination;
+                }, 500);
+            })
+            .catch(err => {
+                updateStatus(`Bypass failed: ${err.message}`, true);
+                console.error('spdmteam bypass error:', err);
+            });
+    }
 
 })();
