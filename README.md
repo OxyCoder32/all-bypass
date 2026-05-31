@@ -4,7 +4,8 @@ This userscripts provides a bypass for executors and scripts on Roblox.
 
 ## Features
 - Bypasses redirects on Roblox executors and scripts.
-
+## Credits
+- skipped.lol for their backend (Linkvertise / WorkInk)
 ## Installation
 1. Install a userscript manager such as [Tampermonkey](https://www.tampermonkey.net/) or [Greasemonkey](https://www.greasespot.net/).
 2. Create a new script and paste the code provided.
