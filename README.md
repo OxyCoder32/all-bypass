@@ -18,4 +18,4 @@ Some of this scripts dont work anymore, you can modify and share it
 
 ## Reporting
 - **GitHub Issues:** [Report an Issue](https://github.com/perritoelpro32/pandadeveolpment-bypass/issues)
-- **Discord:** @z3r0d4
+- **Discord:** [Project X](https://discord.gg/dFqH5jtpqt)
