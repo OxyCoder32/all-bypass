@@ -39,6 +39,7 @@
 // @match        https://bstlar.com/*
 // @match        https://go.linkify.ru/*
 // @match        https://lockr.so/*
+// @match        https://lockr.net/*
 // @match        https://sub4unlock.com/*
 // @match        https://sub4unlock.me/*
 // @match        https://sub4unlock.io/*
@@ -1342,7 +1343,7 @@
     }
 
     // --- lockr.so ---
-    if (currentUrl.includes('lockr.so')) {
+    if (location.href.includes('lockr.net') || location.href.includes('lockr.so')) {
         updateStatus('Processing Lockr...');
 
         const pathParts = window.location.pathname.split('/');
@@ -1352,7 +1353,7 @@
             const runLockr = async () => {
                 try {
                     updateStatus('Getting view data...');
-                    const viewRes = await fetch(`https://lockr.so/api/v1/lockers/${lockerCode}/view`);
+                    const viewRes = await fetch(`https://lockr.net/api/v1/lockers/${lockerCode}/view`);
                     const viewData = await viewRes.json();
 
                     const token = viewData?.data?.token;
@@ -1364,13 +1365,13 @@
 
                     updateStatus('Token acquired, completing task...');
 
-                    await fetch(`https://lockr.so/api/v1/lockers/${lockerCode}/task?token=${token}`);
+                    await fetch(`https://lockr.net/api/v1/lockers/${lockerCode}/task?token=${token}`);
 
                     updateStatus('Polling for unlock...');
 
                     const pollUnlock = async () => {
                         try {
-                            const unlockRes = await fetch(`https://lockr.so/api/v1/lockers/${lockerCode}/unlock?token=${token}`);
+                            const unlockRes = await fetch(`https://lockr.net/api/v1/lockers/${lockerCode}/unlock?token=${token}`);
                             const unlockData = await unlockRes.json();
 
                             const targetUrl = unlockData?.data?.target;
