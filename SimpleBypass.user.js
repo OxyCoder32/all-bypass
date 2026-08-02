@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Simple bypass
 // @namespace    by z3r0d4 and AI
-// @version      0.0.7
+// @version      0.0.8
 // @description  Simple AI made bypass
 // @author       Zero
 // @match        https://linkvertise.com/*
@@ -228,27 +228,24 @@
         (function() {
             let ws = null;
             let realWebSocket = window.WebSocket;
-            let wsReady = false;
             let bypassDone = false;
             let startTime = Date.now();
             const sessionId = Math.random().toString(36).substring(2, 15);
             const MINIMUM_TIME = 20;
+            const NEGOTIATE_URL = 'https://skipped.lol/api/evade/negotiate';
+            const INIT_URL = 'https://skipped.lol/api/evade/init';
 
-            let hResolve, yResolve, gResolve;
-
+            let hResolve = null, yResolve = null, gResolve = null;
             let webSocketBlocked = true;
+            let turnstileQueue = [];
+            let xRef = null, eRef = null, yRef = null;
+
             window.WebSocket = function(url, protocols) {
                 if (webSocketBlocked && url && url.includes('work.ink')) {
                     return {
-                        readyState: 3,
-                        send: () => {},
-                        close: () => {},
-                        addEventListener: () => {},
-                        removeEventListener: () => {},
-                        onopen: null,
-                        onclose: null,
-                        onmessage: null,
-                        onerror: null
+                        readyState: 3, send: () => {}, close: () => {},
+                        addEventListener: () => {}, removeEventListener: () => {},
+                        onopen: null, onclose: null, onmessage: null, onerror: null
                     };
                 }
                 return new realWebSocket(url, protocols);
@@ -271,88 +268,16 @@
                         detail.textContent = message;
                         detail.style.color = isError ? '#ff6666' : '#aaaaaa';
                     }
+                    const iconEl = panel.querySelector('.status-icon');
+                    if (iconEl) {
+                        iconEl.style.backgroundColor = isError ? '#ff4444' : '#00ff88';
+                        iconEl.style.animation = isError ? 'none' : 'blink 1s infinite';
+                    }
                 }
             }
 
-            // Turnstile (captcha)
-            function showTurnstile(action) {
-                return new Promise((resolve) => {
-                    const container = document.createElement('div');
-                    container.id = 'bypass-turnstile-container';
-                    container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) translateY(90px);z-index:9999999;';
-                    document.body.appendChild(container);
-                    update('Complete Turnstile captcha...');
-                    const scriptId = 'bypass-turnstile-script';
-                    if (!document.getElementById(scriptId)) {
-                        const script = document.createElement('script');
-                        script.id = scriptId;
-                        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-                        script.async = true;
-                        script.defer = true;
-                        document.head.appendChild(script);
-                    }
-                    const waitTurnstile = setInterval(() => {
-                        if (window.turnstile && typeof window.turnstile.render === 'function') {
-                            clearInterval(waitTurnstile);
-                            window.turnstile.render('#bypass-turnstile-container', {
-                                sitekey: '0x4AAAAAAAJoXhmMXwq7jgK9',
-                                theme: 'dark',
-                                action: action || undefined,
-                                callback: (token) => {
-                                    container.remove();
-                                    resolve(token);
-                                }
-                            });
-                        }
-                    }, 100);
-                });
-            }
-
-            // hCaptcha
-            function showHCaptcha() {
-                return new Promise((resolve, reject) => {
-                    const container = document.createElement('div');
-                    container.id = 'wk-hcaptcha-container';
-                    container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) translateY(90px);z-index:9999999;';
-                    document.body.appendChild(container);
-                    update('Complete hCaptcha...');
-                    const scriptId = 'bypass-hcaptcha-script';
-                    if (!document.getElementById(scriptId)) {
-                        const script = document.createElement('script');
-                        script.id = scriptId;
-                        script.src = 'https://js.hcaptcha.com/1/api.js?render=explicit&recaptchacompat=on&sentry=false';
-                        script.async = true;
-                        script.defer = true;
-                        script.onerror = () => reject(new Error('hCaptcha error'));
-                        document.head.appendChild(script);
-                    }
-                    const checkHCaptcha = setInterval(() => {
-                        if (window.hcaptcha && typeof window.hcaptcha.render === 'function') {
-                            clearInterval(checkHCaptcha);
-                            try {
-                                window.hcaptcha.render('wk-hcaptcha-container', {
-                                    sitekey: '74184788-498a-4910-ba14-be9c2acc3f98',
-                                    theme: 'dark',
-                                    callback: (token) => {
-                                        container.remove();
-                                        resolve(token);
-                                    },
-                                    'error-callback': (err) => {
-                                        container.remove();
-                                        reject(new Error('hCaptcha error: ' + err));
-                                    }
-                                });
-                            } catch (e) {
-                                container.remove();
-                                reject(e);
-                            }
-                        }
-                    }, 100);
-                });
-            }
-
             function redirectToDest(url) {
-                update('Bypassed');
+                update('Bypass complete! Redirecting...');
                 const elapsed = (Date.now() - startTime) / 1000;
                 const wait = Math.max(0, MINIMUM_TIME - elapsed);
                 if (wait > 0) {
@@ -372,279 +297,503 @@
                 }
             }
 
-            async function handleNegotiation(responseData) {
-                if (bypassDone) return;
-                try {
-                    const resp = JSON.parse(responseData);
-                } catch (e) {
-                    return;
-                }
+            // Promise helper
+            function createPromise(timeout, rejectOnTimeout = true) {
+                return new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        if (rejectOnTimeout) reject();
+                        else resolve(null);
+                    }, timeout);
+                    return { resolve: (val) => { clearTimeout(timer); resolve(val); }, reject };
+                });
             }
 
-            // backend
-            function negotiate(demands) {
-                if (bypassDone) return;
-                fetch('https://skipped.lol/api/evade/negotiate', {
+            // Turnstile
+            function showTurnstile(action) {
+                return new Promise((resolve) => {
+                    const container = document.createElement('div');
+                    container.id = 'bypass-turnstile-container';
+                    container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) translateY(90px);z-index:9999999;';
+                    document.body.appendChild(container);
+                    update('Complete security check below...');
+
+                    if (!document.getElementById('bypass-turnstile-script')) {
+                        const script = document.createElement('script');
+                        script.id = 'bypass-turnstile-script';
+                        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+                        script.async = true; script.defer = true;
+                        document.head.appendChild(script);
+                    }
+
+                    const wait = setInterval(() => {
+                        if (window.turnstile && typeof window.turnstile.render === 'function') {
+                            clearInterval(wait);
+                            window.turnstile.render('#bypass-turnstile-container', {
+                                sitekey: '0x4AAAAAAAJoXhmMXwq7jgK9',
+                                theme: 'dark',
+                                action: action || undefined,
+                                callback: (token) => { container.remove(); resolve(token); }
+                            });
+                        }
+                    }, 100);
+                });
+            }
+
+            // hCaptcha
+            function showHCaptcha() {
+                return new Promise((resolve, reject) => {
+                    const container = document.createElement('div');
+                    container.id = 'wk-hcaptcha-container';
+                    container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%) translateY(90px);z-index:9999999;';
+                    document.body.appendChild(container);
+                    update('Complete hCaptcha...');
+
+                    if (!document.getElementById('bypass-hcaptcha-script')) {
+                        const script = document.createElement('script');
+                        script.id = 'bypass-hcaptcha-script';
+                        script.src = 'https://js.hcaptcha.com/1/api.js?render=explicit&recaptchacompat=on&sentry=false';
+                        script.async = true; script.defer = true;
+                        script.onerror = () => reject(new Error('hCaptcha error'));
+                        document.head.appendChild(script);
+                    }
+
+                    const check = setInterval(() => {
+                        if (window.hcaptcha && typeof window.hcaptcha.render === 'function') {
+                            clearInterval(check);
+                            try {
+                                window.hcaptcha.render('wk-hcaptcha-container', {
+                                    sitekey: '74184788-498a-4910-ba14-be9c2acc3f98',
+                                    theme: 'dark',
+                                    callback: (token) => { container.remove(); resolve(token); },
+                                    'error-callback': (err) => { container.remove(); reject(new Error('hCaptcha error: ' + err)); }
+                                });
+                            } catch (e) { container.remove(); reject(e); }
+                        }
+                    }, 100);
+                });
+            }
+
+            function waitPromise(ms, rejectOnTimeout = true) {
+                let ref = {};
+                const promise = new Promise((resolve, reject) => {
+                    const timer = setTimeout(() => {
+                        ref.fn = null;
+                        if (rejectOnTimeout) reject();
+                        else resolve(null);
+                    }, ms);
+                    ref.fn = (val) => {
+                        clearTimeout(timer);
+                        ref.fn = null;
+                        resolve(val);
+                    };
+                });
+                return { promise, ref };
+            }
+
+            async function sendTurnstileToBackend(token, tsid) {
+                const body = { turnstile: token };
+                if (tsid != null) body.tsid = tsid;
+                const res = await fetch(NEGOTIATE_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        demands: demands,
-                        direction: 'incoming',
-                        session_id: sessionId,
-                        client_timestamp: Date.now()
-                    })
-                })
-                    .then(res => res.json())
-                    .then(async (t) => {
+                    body: JSON.stringify(body)
+                });
+                return await res.json();
+            }
+
+            async function processOffers(t, socialPromise) {
+                const { fM, flM, sM, raM, osM, osM2, pinger, envC } = t;
+
+                if (envC) sendWs(envC);
+                if (pinger) sendWs(pinger);
+
+                // Social tasks
+                if (sM?.length) {
+                    for (let i = 0; i < sM.length; i++) {
+                        update(`Social ${i+1}/${sM.length}...`);
+                        sendWs(sM[i].encrypted || sM[i]);
+                        if (flM) sendWs(flM);
+                        try { await waitPromise(10000).promise; } catch {}
+                        await new Promise(r => setTimeout(r, 10));
+                        if (fM) sendWs(fM);
+                    }
+                }
+
+                if (bypassDone) return;
+
+                const mM = t.mM;
+                const hasMonet = mM?.length > 0;
+                let pData = null;
+
+                if (t.monetIds?.length > 0 && !bypassDone) {
+                    pData = eRef?.value;
+                    if (!pData) {
+                        update('Waiting for monetization data...');
+                        const { promise, ref } = waitPromise(180000, false);
+                        eRef = ref;
+                        pData = await promise;
+                    }
+                }
+
+                if (!hasMonet && !pData && !bypassDone) {
+                    update('Bypass timed out. Please refresh.', true);
+                    return;
+                }
+
+                if (bypassDone) return;
+                if (socialPromise) await socialPromise;
+                if (bypassDone) return;
+
+                const v = hasMonet ? mM : (pData?.mM || null);
+                const f = pData?.coM || null;
+                const hUrl = pData?.mUrl || null;
+
+                const allOffers = [
+                    ...(v || []).map(o => ({ ...o, source: 'monetization' })),
+                    ...(f || []).map(o => ({ ...o, source: 'customOffer' }))
+                ].sort((a, b) => a.id - b.id);
+
+                const processedIds = new Set();
+
+                for (let i = 0; i < allOffers.length; i++) {
+                    const offer = allOffers[i];
+                    const a = offer.encrypted || JSON.stringify(offer);
+
+                    if (processedIds.has(offer.id)) continue;
+                    processedIds.add(offer.id);
+
+                    if (offer.source === 'customOffer') {
+                        update(`Processing ${offer.name}...`);
+                        sendWs(offer.initEncrypted);
+                        sendWs(offer.startEncrypted);
+                        if (flM) sendWs(flM);
+
+                        if (hUrl) {
+                            const offerUrl = hUrl.find(e => String(e.ID) === String(offer.id));
+                            if (offerUrl?.OfferUrl) {
+                                const iframe = document.createElement('iframe');
+                                iframe.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden;';
+                                iframe.src = offerUrl.OfferUrl;
+                                document.body.appendChild(iframe);
+                                setTimeout(() => iframe.remove(), 5000);
+                            }
+                        }
+
+                        await new Promise(r => setTimeout(r, 500));
+                        if (fM) sendWs(fM);
+
+                        try {
+                            const { promise, ref } = waitPromise(65000, false);
+                            yRef = ref;
+                            await promise;
+                        } catch {}
+                        await new Promise(r => setTimeout(r, 50));
+
+                    } else if (offer.id === 80) {
+                        update('Processing Stake...');
+                        sendWs(a);
+                        try {
+                            const { promise, ref } = waitPromise(140000, false);
+                            yRef = ref;
+                            await promise;
+                        } catch {}
+
+                    } else if (offer.id === 25 || offer.id === 34) {
+                        if (offer.event === 'start') {
+                            update(offer.id === 25 ? 'Processing Opera...' : 'Processing browser task...');
+                            sendWs(a);
+
+                            const install = allOffers.find(o => o.id === offer.id && o.event === 'installClicked');
+                            if (install) sendWs(install.encrypted || JSON.stringify(install));
+
+                            const longPromise = waitPromise(300000, false);
+                            let s = false;
+
+                            if (offer.id === 25) {
+                                try {
+                                    update('Forcefully Evading Opera...');
+                                    document.cookie = '__cf_bm=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.work.ink;';
+                                    document.cookie = '__cf_bm=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=work.ink;';
+
+                                    const headResp = await new Promise((res, rej) => {
+                                        const xhr = new XMLHttpRequest();
+                                        xhr.open('HEAD', 'https://work.ink/_api/v2/affiliate/operaGX');
+                                        xhr.setRequestHeader('User-Agent', 'Opera Installer/1.0');
+                                        xhr.onload = () => res({ headers: xhr.getAllResponseHeaders(), status: xhr.status });
+                                        xhr.onerror = rej;
+                                        xhr.timeout = 3000;
+                                        xhr.send();
+                                    });
+
+                                    const cfMatch = headResp.headers.match(/__cf_bm=([^;\s]+)/);
+                                    const n = cfMatch ? `__cf_bm=${cfMatch[1]}` : '';
+
+                                    const postResp = await new Promise((res, rej) => {
+                                        const xhr = new XMLHttpRequest();
+                                        xhr.open('POST', 'https://work.ink/_api/v2/callback/operaGX');
+                                        xhr.setRequestHeader('Content-Type', 'application/json');
+                                        xhr.setRequestHeader('User-Agent', 'Opera Installer/1.0');
+                                        if (n) xhr.setRequestHeader('Cookie', n);
+                                        xhr.onload = () => res({ status: xhr.status });
+                                        xhr.onerror = rej;
+                                        xhr.timeout = 3000;
+                                        xhr.send(JSON.stringify({ noteligible: true }));
+                                    });
+
+                                    if (postResp.status === 200) {
+                                        s = true;
+                                        await new Promise(r => setTimeout(r, 50));
+                                    } else {
+                                        update('Opera task running...');
+                                    }
+                                } catch (e) {
+                                    update('Opera task running...');
+                                }
+                            }
+
+                            if (bypassDone) continue;
+                            if (flM) sendWs(flM);
+
+                            try { await longPromise.promise; } catch {}
+                            if (fM) sendWs(fM);
+                        }
+                    } else {
+                        sendWs(a);
+                        await new Promise(r => setTimeout(r, 50));
+                    }
+
                     if (bypassDone) return;
+                    if (i < allOffers.length - 1 && bypassDone) return;
+                }
+
+                if (fM) sendWs(fM);
+                update('Waiting for destination...');
+
+                const { promise, ref } = waitPromise(180000, false);
+                yRef = ref;
+                const dest = await promise;
+                if (!dest) update('Bypass timed out. Please refresh.', true);
+            }
+
+            async function negotiate(demands) {
+                if (bypassDone) return;
+
+                try {
+                    const res = await fetch(NEGOTIATE_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            demands: demands,
+                            direction: 'incoming',
+                            session_id: sessionId,
+                            client_timestamp: Date.now()
+                        })
+                    });
+                    const t = await res.json();
+
+                    if (bypassDone) return;
+
                     if (t.success === false && t.error) {
                         update(t.error, true);
                         bypassDone = true;
                         return;
                     }
+
                     if (t.conditions === 'destination' && t.destinationURL) {
                         bypassDone = true;
                         redirectToDest(t.destinationURL);
                         return;
                     }
+
                     if (t.conditions === 'prxd') {
                         if ((Date.now() - startTime) < 9000) {
-                            update('VPN/Proxy detected. Turn off and Reload', true);
+                            update('VPN/Proxy detected. Disable and retry.', true);
                             bypassDone = true;
                             return;
                         }
                     }
-                    if (t.conditions === 'social_done' && hResolve) hResolve();
-                    if (t.conditions === 'monetization_done' && yResolve) yResolve();
-                    if (t.conditions === 'offers_state' && typeof gResolve === 'function') gResolve(t);
+
+                    if (t.conditions === 'social_done' && hResolve) {
+                        hResolve();
+                        hResolve = null;
+                    }
+
+                    if (t.conditions === 'monetization_done') {
+                        const item = turnstileQueue.shift();
+                        if (item && item.resolve) item.resolve();
+                    }
+
+                    if (t.conditions === 'tsac') {
+                        turnstileQueue.push({ action: t.action });
+                        if (xRef && xRef.fn) xRef.fn(t.action);
+                    }
+
+                    if (t.conditions === 'mntd') {
+                        eRef = { value: t };
+                        if (eRef && eRef.fn) eRef.fn(t);
+                    }
+
+                    if (t.conditions === 'monetization_ack' && yRef && yRef.fn) {
+                        yRef.fn(t);
+                    }
+
+                    if (t.conditions === 'offers_state' && yRef && yRef.fn) {
+                        yRef.fn(t);
+                    }
+
                     if (t.conditions === 'ping' && t.pingMsg) {
                         setTimeout(() => sendWs(t.pingMsg), 2000);
                     }
 
-                    if (t.sM || t.raM || t.osM || t.mM || t.coM || t.hasOwnProperty('sM')) {
-                        (async () => {
-                            let turnstileToken = null;
-                            if (t.tat) {
+                    // link info
+                    if (t.sM?.length || t.raM?.length || t.osM?.length || t.hasOwnProperty('sM')) {
+
+                        // Turnstile
+                        let turnstileToken = null;
+                        if (t.tat) {
+                            try {
+                                turnstileToken = await showTurnstile(t.tat);
+                            } catch (e) {
+                                update('Security check failed', true);
+                                bypassDone = true;
+                                return;
+                            }
+
+                            try {
+                                const verify = await sendTurnstileToBackend(turnstileToken);
+                                if (verify?.tst) sendWs(verify.tst);
+                                startTime = Date.now();
+                            } catch (e) {
+                                update('Failed to verify security check', true);
+                                bypassDone = true;
+                                return;
+                            }
+                        }
+
+                        // hCaptcha
+                        if (t.hcr) {
+                            const hcsn = Math.max(1, parseInt(t.hcsn, 10) || 1);
+                            for (let i = 0; i < hcsn; i++) {
+                                update(`hCaptcha ${i+1}/${hcsn}...`);
+                                let hCapToken;
                                 try {
-                                    turnstileToken = await showTurnstile(t.tat);
+                                    hCapToken = await showHCaptcha();
                                 } catch (e) {
-                                    update('Error whit Turnstile', true);
+                                    update('Failed to load hCaptcha', true);
                                     bypassDone = true;
                                     return;
                                 }
-                                // Send token to backend
+
+                                update(`hCaptcha solved ${i+1}/${hcsn}, submitting...`);
                                 try {
-                                    const res = await fetch('https://skipped.lol/api/evade/negotiate', {
+                                    const verify = await fetch(NEGOTIATE_URL, {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ turnstile: turnstileToken })
+                                        body: JSON.stringify({ hCapToken: hCapToken })
                                     }).then(r => r.json());
-                                    if (res.tst) sendWs(res.tst);
+
+                                    const resp = verify?.hcresp || verify?.tst;
+                                    if (resp) sendWs(resp);
                                 } catch (e) {
-                                    update('Error validating Turnstile', true);
+                                    update('Failed to verify hCaptcha', true);
                                     bypassDone = true;
                                     return;
                                 }
                             }
 
-                            // hCaptcha
-                            if (t.hcr) {
-                                const hcsn = parseInt(t.hcsn, 10) || 1;
-                                for (let i = 0; i < hcsn; i++) {
-                                    update(`Complete hCaptcha (${i+1}/${hcsn})...`);
-                                    let hCapToken;
-                                    try {
-                                        hCapToken = await showHCaptcha();
-                                    } catch (e) {
-                                        update('Error whit hCaptcha', true);
-                                        bypassDone = true;
-                                        return;
-                                    }
-                                    // send token hCaptcha
-                                    try {
-                                        const res = await fetch('https://skipped.lol/api/evade/negotiate', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ hCapToken })
-                                        }).then(r => r.json());
-                                        if (res.hcresp || res.tst) sendWs(res.hcresp || res.tst);
-                                    } catch (e) {
-                                        update('Error validating hCaptcha', true);
-                                        bypassDone = true;
-                                        return;
-                                    }
-                                }
-                                update('hCaptcha completed...');
+                            if (t.mdDism) sendWs(t.mdDism);
+                            update('hCaptcha complete, evading...');
+                        }
+
+                        const socialRef = { fn: null };
+                        const socialPromise = new Promise(resolve => {
+                            hResolve = resolve;
+                        });
+
+                        const offersPromise = processOffers(t, socialPromise).catch(() => {});
+
+                        const monetIds = [
+                            ...(t.mM || []).filter(o => o.event === 'start').map(o => o.id),
+                            ...t.monetIds || []
+                        ];
+
+                        if (monetIds.length > 0) {
+                            for (const id of monetIds) {
+                                if (bypassDone) break;
+                                await sendMonetizationTurnstile(id);
                             }
+                        }
 
-                            if (t.envC) sendWs(t.envC);
-                            if (t.pinger) sendWs(t.pinger);
-
-                            if (t.sM && t.sM.length) {
-                                for (let i = 0; i < t.sM.length; i++) {
-                                    update(`Completing social ${i+1}/${t.sM.length}...`);
-                                    sendWs(t.sM[i].encrypted || t.sM[i]);
-                                    if (t.flM) sendWs(t.flM);
-                                    // wait for backend resolve social_done
-                                    await new Promise(resolve => { hResolve = resolve; });
-                                    hResolve = null;
-                                    await new Promise(r => setTimeout(r, 10));
-                                    if (t.fM) sendWs(t.fM);
-                                }
-                            }
-
-                            if (bypassDone) return;
-
-                            const allOffers = [
-                                ...(t.mM || []).map(o => ({ ...o, source: 'monetization' })),
-                                ...(t.coM || []).map(o => ({ ...o, source: 'customOffer' }))
-                            ].sort((a, b) => a.id - b.id);
-                            const processedIds = new Set();
-
-                            for (let i = 0; i < allOffers.length; i++) {
-                                const offer = allOffers[i];
-                                if (processedIds.has(offer.id)) continue;
-                                processedIds.add(offer.id);
-                                const enc = offer.encrypted || JSON.stringify(offer);
-
-                                if (offer.source === 'customOffer') {
-                                    update(`Completing ${offer.name}...`);
-                                    sendWs(offer.initEncrypted);
-                                    sendWs(offer.startEncrypted);
-                                    if (t.flM) sendWs(t.flM);
-                                    await new Promise(r => setTimeout(r, 500));
-                                    if (t.fM) sendWs(t.fM);
-                                    await new Promise(resolve => { yResolve = resolve; });
-                                    yResolve = null;
-                                    await new Promise(r => setTimeout(r, 50));
-                                } else if (offer.id === 80) {
-                                    update('Completing Stake...');
-                                    sendWs(enc);
-                                    await new Promise(resolve => {
-                                        yResolve = resolve;
-                                        setTimeout(() => { if (yResolve) { yResolve(); yResolve = null; } }, 140000);
-                                    });
-                                } else if (offer.id === 25 || offer.id === 34) {
-                                    if (offer.event === 'start') {
-                                        update(offer.id === 25 ? 'Completing Opera...' : 'Can take 2 mins...');
-                                        sendWs(enc);
-                                        const install = allOffers.find(o => o.id === offer.id && o.event === 'installClicked');
-                                        if (install) sendWs(install.encrypted || JSON.stringify(install));
-                                        // Opera cookie bypass
-                                        if (offer.id === 25) {
-                                            try {
-                                                update('Doing Opera...');
-                                                document.cookie = '__cf_bm=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.work.ink;';
-                                                document.cookie = '__cf_bm=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=work.ink;';
-                                                const headResp = await fetch('https://work.ink/_api/v2/affiliate/operaGX', { method: 'HEAD', headers: { 'User-Agent': 'Opera Installer/1.0' } });
-                                                const cfCookie = headResp.headers.get('set-cookie')?.match(/__cf_bm=([^;\s]+)/);
-                                                const cookieStr = cfCookie ? `__cf_bm=${cfCookie[1]}` : '';
-                                                const postResp = await fetch('https://work.ink/_api/v2/callback/operaGX', {
-                                                    method: 'POST',
-                                                    headers: {
-                                                        'Content-Type': 'application/json',
-                                                        'User-Agent': 'Opera Installer/1.0',
-                                                        'Cookie': cookieStr
-                                                    },
-                                                    body: JSON.stringify({ noteligible: true })
-                                                });
-                                                if (postResp.status === 200) {
-                                                    await new Promise(r => setTimeout(r, 50));
-                                                } else {
-                                                    update('Completing Opera...');
-                                                }
-                                            } catch (e) {
-                                                update('Ignoring error...');
-                                            }
-                                        }
-                                        if (bypassDone) continue;
-                                        if (t.flM) sendWs(t.flM);
-                                        await new Promise(resolve => {
-                                            yResolve = resolve;
-                                            setTimeout(() => { if (yResolve) { yResolve(); yResolve = null; } }, 300000);
-                                        });
-                                        if (t.fM) sendWs(t.fM);
-                                    }
-                                } else {
-                                    sendWs(enc);
-                                    await new Promise(r => setTimeout(r, 50));
-                                }
-                                if (bypassDone) return;
-                                if (i < allOffers.length - 1 && bypassDone) return;
-                            }
-
-                            // Finalizing
-                            if (t.fM) sendWs(t.fM);
-                            update('Waiting final link...');
-                            await new Promise((resolve, reject) => {
-                                gResolve = resolve;
-                                setTimeout(() => {
-                                    if (gResolve) {
-                                        gResolve = null;
-                                        update('Bypass timeout. Reload page', true);
-                                        bypassDone = true;
-                                    }
-                                }, 180000);
-                            });
-                        })();
+                        if (socialRef.fn) socialRef.fn();
+                        await offersPromise;
                     }
-                })
-                    .catch(err => {
-                    update('Error whit backend', true);
-                    bypassDone = true;
-                });
+
+                } catch (err) {
+                    if (!bypassDone) {
+                        update('Backend parse error', true);
+                        bypassDone = true;
+                    }
+                }
             }
 
-            // Start bypass
+            // Send turnstile
+            async function sendMonetizationTurnstile(tsid) {
+                let action = turnstileQueue.shift();
+                if (!action) {
+                    const { promise, ref } = waitPromise(120000, false);
+                    xRef = ref;
+                    action = await promise;
+                }
+                if (!action || bypassDone) return;
+
+                update('Security check...');
+                const token = await showTurnstile(action);
+                if (bypassDone) return;
+
+                update('Security check passed...');
+                try {
+                    const verify = await sendTurnstileToBackend(token, tsid);
+                    if (verify?.tst) sendWs(verify.tst);
+                } catch (e) {}
+            }
+
+            // Main bypass flow
             async function startWorkinkBypass() {
+                update('Waiting for monocle...');
                 let monocle = null;
                 while (!monocle && !bypassDone) {
                     const input = document.querySelector('form.monocle-enriched input[name="monocle"]');
-                    if (input && input.value) {
-                        monocle = input.value;
-                        break;
-                    }
+                    if (input && input.value) { monocle = input.value; break; }
                     await new Promise(r => setTimeout(r, 200));
                 }
-                if (!monocle) {
-                    update('token monocle not found', true);
-                    bypassDone = true;
-                    return;
-                }
+                if (!monocle) { update('Monocle not found', true); bypassDone = true; return; }
 
-                // backend call
                 let initData;
                 try {
-                    const res = await fetch('https://skipped.lol/api/evade/init', {
+                    const res = await fetch(INIT_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ mcl: monocle, session_id: sessionId })
                     });
                     initData = await res.json();
                 } catch (e) {
-                    update('Error in init', true);
-                    bypassDone = true;
-                    return;
+                    update('Init failed', true); bypassDone = true; return;
                 }
-                if (!initData.tok) {
-                    update('Invalid token from backend', true);
-                    bypassDone = true;
-                    return;
+                if (!initData || !initData.tok) {
+                    update('Invalid token', true); bypassDone = true; return;
                 }
 
                 const pageHtml = await fetch(location.href).then(r => r.text());
                 const userIdMatch = pageHtml.match(/f_user_id\s*:\s*["']?(\d+)["']?/);
                 if (!userIdMatch) {
-                    update('user ID not found', true);
-                    bypassDone = true;
-                    return;
+                    update('User ID not found', true); bypassDone = true; return;
                 }
+
                 const userId = userIdMatch[1];
                 const pathParts = location.pathname.split('/').filter(Boolean);
                 const custom = pathParts[1] || pathParts[0] || '';
                 const sr = new URLSearchParams(location.search).get('sr') || '';
 
-                // WS URL
                 const wsUrl = `wss://work.ink/_api/v2/ws?userId=${userId}&custom=${custom}&referrer=https://work.ink/&toLink=&serverOverride=${sr}&customerSessionToken=${initData.tok}&monocleAssessment=${monocle}`;
 
                 webSocketBlocked = false;
@@ -653,25 +802,17 @@
 
                 ws.onopen = () => {
                     startTime = Date.now();
-                    wsReady = true;
                     if (initData.mcl) sendWs(initData.mcl);
                     if (initData.pinger) sendWs(initData.pinger);
-                    update('Conected, waiting...');
+                    update('Connected, waiting...');
                 };
 
                 ws.onmessage = (e) => {
-                    if (typeof e.data === 'string') {
-                        negotiate(e.data);
-                    }
+                    if (typeof e.data === 'string') negotiate(e.data);
                 };
 
-                ws.onerror = () => {
-                    if (!bypassDone) update('Conection error', true);
-                };
-
-                ws.onclose = (e) => {
-                    if (!bypassDone) update(`Closed connection: ${e.code}`, true);
-                };
+                ws.onerror = () => { if (!bypassDone) update('Connection error', true); };
+                ws.onclose = (e) => { if (!bypassDone) update(`Closed: ${e.code}`, true); };
             }
 
             if (document.readyState === 'loading') {
